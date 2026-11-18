@@ -1,0 +1,416 @@
+
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#176b65">
+<title>Meu Remédio</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font:17px Arial;background:#f2f7f5;color:#193b36}
+header{background:#176b65;color:white;text-align:center;padding:20px}
+main{max-width:650px;margin:auto;padding:14px}
+nav{display:flex;gap:6px}
+nav button{flex:1;font-size:14px}
+section{background:white;border-radius:13px;padding:16px;margin:12px 0}
+button{border:0;border-radius:9px;padding:12px;cursor:pointer}
+input,select{width:100%;padding:12px;margin:7px 0 13px;border:1px solid #bbb;border-radius:8px;font-size:16px}
+.primary{background:#176b65;color:white}
+.danger{background:#b83d3d;color:white}
+.wide{width:100%}
+.item{border:1px solid #ddd;padding:12px;border-radius:9px;margin:10px 0}
+.hidden{display:none}
+small{color:#555}
+img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
+#lembretes .item{font-size:19px;line-height:1.5}
+#lembretes [data-tomou]{display:block;width:100%;padding:18px;font-size:22px;font-weight:bold}
+#registros .item{line-height:1.6}
+#aviso{background:#fff0c2;padding:12px;border-radius:8px}
+</style>
+</head>
+<body>
+<header><h1>💊 Meu Remédio</h1><p>Cuidando de quem você ama</p></header>
+<main>
+<nav id="navegacao">
+<button id="tabF" onclick="aba('familiar')">👪 Familiar</button>
+<button id="tabI" onclick="aba('idoso')">💊 Meus medicamentos</button>
+<button onclick="aba('historico')">📋 Histórico</button>
+</nav>
+<section id="conexao">
+<h3>🔗 Conexão familiar</h3>
+<label>Código da família</label>
+<input id="codigo" placeholder="Mínimo 12 caracteres">
+<button class="primary" onclick="conectar()">Conectar</button>
+<button onclick="criarFamilia()">Criar código</button>
+<button class="primary" onclick="gerarConvite()">📲 Enviar pelo WhatsApp</button>
+<button onclick="copiarConvite()">📋 Copiar convite</button>
+<p id="status">Aguardando conexão</p>
+<small>Use o convite no outro celular. O código dá acesso aos dados da família: compartilhe apenas com pessoas de confiança. A sincronização depende do Firebase e das regras de acesso configuradas.</small>
+</section>
+<div id="familiar">
+<section>
+<h2>➕ Cadastrar medicamento</h2>
+<label>Nome do idoso</label>
+<input id="idosoNome" placeholder="Nome do idoso">
+<label>Nome do medicamento</label>
+<input id="nome" placeholder="Ex.: Losartana">
+<label>Horário</label>
+<input type="time" id="hora">
+<label>Cor do comprimido</label>
+<select id="cor">
+<option>Branco</option>
+<option>Azul</option>
+<option>Amarelo</option>
+<option>Vermelho</option>
+<option>Verde</option>
+<option>Rosa</option>
+<option>Outra</option>
+</select>
+<label>Dosagem</label>
+<input id="dose" placeholder="Ex.: 1 comprimido">
+<label>Foto do medicamento (opcional)</label>
+<input type="file" id="foto" accept="image/*">
+<small>A foto será reduzida antes de salvar. Imagens muito grandes podem não ser aceitas pelo banco.</small>
+<p><button class="primary wide" onclick="cadastrar()">Salvar medicamento</button></p>
+</section>
+<section>
+<h2>Medicamentos cadastrados</h2>
+<div id="lista"></div>
+</section>
+</div>
+<div id="idoso" class="hidden">
+<section>
+<h2>💊 Meus medicamentos</h2>
+<button class="primary wide" onclick="ativarSom()">🔊 Ativar som e voz</button>
+<p><small>Som e voz precisam ser ativados por toque. Alertas não são garantidos com o app fechado ou o celular bloqueado. Mantenha também o alarme do celular.</small></p>
+<div id="aviso" class="hidden"></div>
+<div id="lembretes"></div>
+</section>
+</div>
+<div id="historico" class="hidden">
+<section>
+<h2>📋 Histórico de medicamentos</h2>
+<div id="registros"></div>
+</section>
+</div>
+</main>
+<script type="module">
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+import {getAuth,signInAnonymously,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+import {getFirestore,collection,doc,setDoc,deleteDoc,onSnapshot,addDoc} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+const firebaseConfig={
+apiKey:'AIzaSyAMYY2ePUMyikwEHgI3kSpXApz76F049fo',
+authDomain:'meusremedios.firebaseapp.com',
+projectId:'meusremedios',
+storageBucket:'meusremedios.firebasestorage.app',
+messagingSenderId:'211187679046',
+appId:'1:211187679046:web:3fe5ded8cad692ad44af47',
+measurementId:'G-HTG9CTVYBV'
+};
+const app=initializeApp(firebaseConfig);
+const auth=getAuth(app);
+const db=getFirestore(app);
+const $=id=>document.getElementById(id);
+let usuario=null;
+let codigo=localStorage.getItem('codigoFamilia')||'';
+let medicamentos=[],historico=[],cancelar=[];
+let somAtivo=false,audioCtx;
+let perfil=localStorage.getItem('perfilRemedio')||'familiar';
+let alarmeTimer=null,alarmeId=null;
+let alertaFamilia=new Set();
+const avisados=new Set();
+$('codigo').value=codigo;
+function escapar(v){
+return String(v??'').replace(/[&<>"']/g,c=>({
+'&':'&amp;','<':'&lt;','>':'&gt;',
+'"':'&quot;',"'":'&#39;'
+}[c]));
+}
+window.aba=t=>{
+if(t==='familiar'&&perfil!=='familiar')return;
+['familiar','idoso','historico'].forEach(x=>
+$(x).classList.toggle('hidden',x!==t));
+};
+function aplicarPerfil(){
+$('tabF').classList.toggle('hidden',perfil!=='familiar');
+$('tabI').classList.toggle('hidden',perfil!=='idoso');
+$('conexao').classList.toggle('hidden',perfil==='idoso');
+window.aba(perfil);
+}
+function diaLocal(d){
+return d.getFullYear()+'-'+
+String(d.getMonth()+1).padStart(2,'0')+'-'+
+String(d.getDate()).padStart(2,'0');
+}
+function confirmado(m,dia){
+return historico.some(h=>h.medicamentoId===m.id&&
+h.dia===dia&&h.status==='Tomado');
+}
+function pararAlarme(){
+if(alarmeTimer)clearInterval(alarmeTimer);
+alarmeTimer=null;alarmeId=null;
+if('speechSynthesis'in window)speechSynthesis.cancel();
+$('aviso').classList.add('hidden');
+}
+function limparEscutas(){
+cancelar.forEach(fn=>fn());cancelar=[];
+}
+function carregar(){
+limparEscutas();pararAlarme();
+medicamentos=[];historico=[];renderizar();
+if(!usuario||!codigo)return;
+$('status').textContent='Conectando...';
+const base=collection(db,'familias',codigo,'medicamentos');
+const hist=collection(db,'familias',codigo,'historico');
+cancelar.push(onSnapshot(base,s=>{
+medicamentos=s.docs.map(d=>({id:d.id,...d.data()}));
+renderizar();
+$('status').textContent='✅ Conectado ao banco de dados';
+},e=>$('status').textContent='Erro de conexão: '+e.message));
+cancelar.push(onSnapshot(hist,s=>{
+historico=s.docs.map(d=>({id:d.id,...d.data()}));
+renderizar();verificarHorarios();
+},e=>$('status').textContent='Erro no histórico: '+e.message));
+}
+window.conectar=()=>{
+const v=$('codigo').value.trim();
+if(!/^[a-zA-Z0-9_-]{12,80}$/.test(v)){
+alert('Use um código de 12 a 80 letras, números, hífen ou sublinhado.');
+return;
+}
+codigo=v;
+localStorage.setItem('codigoFamilia',codigo);
+carregar();
+};
+window.criarFamilia=()=>{
+perfil='familiar';
+localStorage.setItem('perfilRemedio',perfil);
+aplicarPerfil();
+const bytes=crypto.getRandomValues(new Uint8Array(24));
+$('codigo').value=Array.from(bytes,b=>
+b.toString(16).padStart(2,'0')).join('');
+window.conectar();
+};
+function linkConvite(){
+if(!codigo){
+alert('Primeiro toque em Criar código ou Conectar.');
+return null;
+}
+const url=new URL('https://davizinhohhh-pixel.github.io/lembrete-medicamentos/');
+url.searchParams.set('familia',codigo);
+url.searchParams.set('tela','idoso');
+return url.toString();
+}
+window.copiarConvite=async()=>{
+const link=linkConvite();if(!link)return;
+try{
+await navigator.clipboard.writeText(link);
+alert('Link copiado! Cole no WhatsApp.');
+}catch{prompt('Copie este link:',link);}
+};
+window.gerarConvite=()=>{
+const link=linkConvite();if(!link)return;
+const mensagem='💊 Convite Meu Remédio: toque no link para conectar o celular do idoso aos medicamentos da família: '+link;
+const wa='https://wa.me/?text='+encodeURIComponent(mensagem);
+window.location.href=wa;
+};
+const parametros=new URL(location.href).searchParams;
+const recebido=parametros.get('familia');
+const telaConvite=parametros.get('tela');
+if(recebido&&/^[a-zA-Z0-9_-]{12,80}$/.test(recebido)){
+$('codigo').value=recebido;
+codigo=recebido;
+localStorage.setItem('codigoFamilia',codigo);
+history.replaceState(null,'',location.pathname);
+if(telaConvite==='idoso'){
+perfil='idoso';
+localStorage.setItem('perfilRemedio',perfil);
+}
+}
+aplicarPerfil();
+onAuthStateChanged(auth,u=>{
+usuario=u;if(u&&codigo)carregar();
+});
+signInAnonymously(auth).catch(e=>
+$('status').textContent='Falha na autenticação: '+e.message);
+async function reduzirFoto(file){
+if(!file)return '';
+if(!file.type.startsWith('image/'))throw Error('Selecione uma imagem.');
+const bitmap=await createImageBitmap(file);
+const escala=Math.min(1,500/Math.max(bitmap.width,bitmap.height));
+const canvas=document.createElement('canvas');
+canvas.width=Math.round(bitmap.width*escala);
+canvas.height=Math.round(bitmap.height*escala);
+canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
+bitmap.close();
+const data=canvas.toDataURL('image/jpeg',.65);
+if(data.length>450000)throw Error('Foto muito grande. Escolha outra.');
+return data;
+}
+window.cadastrar=async()=>{
+const nome=$('nome').value.trim();
+const hora=$('hora').value;
+const cor=$('cor').value;
+const dose=$('dose').value.trim();
+const idosoNome=$('idosoNome').value.trim();
+if(!nome||!hora||!dose||!idosoNome||!codigo||!usuario){
+alert('Preencha nome do idoso, medicamento, horário e dosagem e conecte a família.');
+return;
+}
+try{
+const foto=await reduzirFoto($('foto').files[0]);
+await setDoc(doc(db,'familias',codigo,'medicamentos',crypto.randomUUID()),{
+nome,hora,cor,dose,idosoNome,foto,criadoEm:Date.now()
+});
+$('nome').value='';
+$('hora').value='';
+$('dose').value='';
+$('foto').value='';
+alert('Medicamento cadastrado!');
+}catch(e){alert('Erro ao salvar: '+e.message);}
+};
+window.excluir=async id=>{
+if(!confirm('Excluir este medicamento?'))return;
+try{
+await deleteDoc(doc(db,'familias',codigo,'medicamentos',id));
+}catch(e){alert(e.message);}
+};
+window.tomou=async id=>{
+if(perfil!=='idoso')return;
+const m=medicamentos.find(x=>x.id===id);
+if(!m)return;
+const dia=diaLocal(new Date());
+try{
+await setDoc(doc(db,'familias',codigo,'historico',dia+'_'+id),{
+medicamentoId:id,dia,nome:m.nome,
+idosoNome:m.idosoNome||'',hora:m.hora,
+data:new Date().toLocaleString('pt-BR'),
+criadoEm:Date.now(),status:'Tomado'
+});
+pararAlarme();
+verificarHorarios();
+alert('Medicamento registrado como tomado!');
+}catch(e){alert(e.message);}
+};
+function renderizar(){
+const ord=[...medicamentos].sort((a,b)=>
+String(a.hora||'').localeCompare(String(b.hora||'')));
+const foto=m=>m.foto&&/^data:image\/jpeg;base64,/.test(m.foto)?
+`<img class="remedio" alt="Foto do medicamento" src="${m.foto}">`:'';
+$('lista').innerHTML=ord.map(m=>`
+<div class="item">
+${foto(m)}
+<strong>${escapar(m.nome)}</strong>
+<p>👤 ${escapar(m.idosoNome||'')}</p>
+<p>⏰ ${escapar(m.hora)} — ${escapar(m.dose)}</p>
+<p>🎨 ${escapar(m.cor)}</p>
+<button class="danger" data-excluir="${escapar(m.id)}">Excluir</button>
+</div>`).join('')||'Nenhum medicamento cadastrado.';
+$('lembretes').innerHTML=ord.map(m=>`
+<div class="item">
+${foto(m)}
+<h3>💊 ${escapar(m.nome)}</h3>
+<p>👤 ${escapar(m.idosoNome||'')}</p>
+<p>⏰ ${escapar(m.hora)}</p>
+<p>${escapar(m.dose)} — ${escapar(m.cor)}</p>
+<button class="primary" data-tomou="${escapar(m.id)}">✅ Já tomei</button>
+</div>`).join('')||'Nenhum medicamento cadastrado.';
+$('registros').innerHTML=[...historico]
+.sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0))
+.map(h=>`
+<div class="item">
+${h.status==='Tomado'?'✅':'⚠️'} ${escapar(h.nome)}
+<p>${escapar(h.idosoNome||'')} — ${escapar(h.data||'')} — ${escapar(h.status)}</p>
+</div>`).join('')||'Nenhum registro ainda.';
+}
+document.addEventListener('click',e=>{
+const ex=e.target.closest('[data-excluir]');
+const to=e.target.closest('[data-tomou]');
+if(ex)window.excluir(ex.dataset.excluir);
+if(to)window.tomou(to.dataset.tomou);
+});
+window.ativarSom=async()=>{
+try{
+const AC=window.AudioContext||window.webkitAudioContext;
+if(!AC)throw Error('Áudio não suportado');
+audioCtx=audioCtx||new AC();
+await audioCtx.resume();
+somAtivo=true;
+alert('Som e voz ativados enquanto o aplicativo estiver aberto.');
+}catch(e){
+alert('Não foi possível ativar o som: '+e.message);
+}
+};
+function tocar(){
+if(perfil!=='idoso'||!somAtivo||!audioCtx)return;
+try{
+const osc=audioCtx.createOscillator();
+const ganho=audioCtx.createGain();
+osc.frequency.value=880;
+ganho.gain.setValueAtTime(.15,audioCtx.currentTime);
+ganho.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+.6);
+osc.connect(ganho);
+ganho.connect(audioCtx.destination);
+osc.start();
+osc.stop(audioCtx.currentTime+.6);
+}catch(e){console.error(e);}
+}
+function verificarHorarios(){
+if(!codigo||!usuario)return;
+const agora=new Date();
+const dia=diaLocal(agora);
+const minAgora=agora.getHours()*60+agora.getMinutes();
+if(perfil==='idoso'){
+const pendentes=medicamentos.filter(m=>{
+const partes=String(m.hora||'').split(':').map(Number);
+return partes.length===2&&
+minAgora>=partes[0]*60+partes[1]&&!confirmado(m,dia);
+});
+if(!pendentes.length){
+pararAlarme();return;
+}
+const m=pendentes[0];
+if(alarmeTimer&&alarmeId!==m.id)pararAlarme();
+const mensagem='Está na hora de tomar o remédio '+m.nome+'. '+m.dose+'. Cor '+m.cor+'.';
+$('aviso').textContent='🔔 '+mensagem+' Aperte Já tomei para parar.';
+$('aviso').classList.remove('hidden');
+if(!alarmeTimer){
+const repetir=()=>{
+if(document.hidden)return;
+tocar();
+if(somAtivo&&'speechSynthesis'in window){
+speechSynthesis.cancel();
+const fala=new SpeechSynthesisUtterance(mensagem);
+fala.lang='pt-BR';
+speechSynthesis.speak(fala);
+}
+};
+repetir();
+alarmeId=m.id;
+alarmeTimer=setInterval(repetir,20000);
+}
+}else{
+for(const m of medicamentos){
+const partes=String(m.hora||'').split(':').map(Number);
+if(partes.length!==2)continue;
+const atraso=minAgora-(partes[0]*60+partes[1]);
+const chave=dia+'_'+m.id;
+if(atraso>=15&&!confirmado(m,dia)&&!alertaFamilia.has(chave)){
+alertaFamilia.add(chave);
+$('status').textContent='⚠️ '+m.nome+' não foi confirmado após 15 minutos.';
+if(document.visibilityState==='visible'){
+alert('Atenção: '+m.nome+' das '+m.hora+' ainda não foi confirmado pelo idoso.');
+}
+}
+}
+}
+}
+setInterval(verificarHorarios,15000);
+document.addEventListener('visibilitychange',()=>{
+if(!document.hidden)verificarHorarios();
+});
+renderizar();
+</script>
+</body>
+</html>
