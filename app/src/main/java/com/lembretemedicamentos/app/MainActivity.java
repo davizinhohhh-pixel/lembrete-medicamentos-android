@@ -11,8 +11,12 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         WebView webView = new WebView(this);
+
         webView.getSettings().setJavaScriptEnabled(true);
+        webView.getSettings().setDomStorageEnabled(true);
+
         webView.setWebViewClient(new WebViewClient());
+
         setContentView(webView);
 
         webView.loadUrl("https://davizinhohhh-pixel.github.io/lembrete-medicamentos/");
