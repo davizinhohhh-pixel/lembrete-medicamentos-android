@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-VERSION=8.7
+VERSION=8.9
 DIST_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/custom-distributions/gradle-$VERSION"
 if [ ! -x "$DIST_DIR/bin/gradle" ]; then
   mkdir -p "$(dirname "$DIST_DIR")"
