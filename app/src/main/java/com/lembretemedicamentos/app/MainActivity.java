@@ -29,6 +29,9 @@ public class MainActivity extends Activity {
     private static final String SITE =
         "https://davizinhohhh-pixel.github.io/lembrete-medicamentos/";
 
+    private static final String SITE_IDOSO =
+        SITE + "?tela=idoso";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -70,6 +73,7 @@ public class MainActivity extends Activity {
         });
 
         webView.setWebViewClient(new WebViewClient() {
+
             @Override
             public boolean shouldOverrideUrlLoading(
                     WebView view,
@@ -94,10 +98,29 @@ public class MainActivity extends Activity {
                 }
                 return true;
             }
+
+            @Override
+            public void onPageFinished(
+                    WebView view, String url) {
+
+                super.onPageFinished(view, url);
+
+                if (url != null && url.startsWith(SITE)) {
+                    view.evaluateJavascript(
+                        "(function() {" +
+                        "if (localStorage.getItem('perfilRemedio') !== 'idoso') {" +
+                        "localStorage.setItem('perfilRemedio', 'idoso');" +
+                        "location.reload();" +
+                        "}" +
+                        "})();",
+                        null
+                    );
+                }
+            }
         });
 
         setContentView(webView);
-        webView.loadUrl(SITE);
+        webView.loadUrl(SITE_IDOSO);
 
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(
