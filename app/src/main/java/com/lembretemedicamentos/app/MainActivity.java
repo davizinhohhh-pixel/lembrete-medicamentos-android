@@ -1,11 +1,13 @@
 
 package com.lembretemedicamentos.app;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -36,6 +38,8 @@ public class MainActivity extends Activity {
         WebSettings config = webView.getSettings();
         config.setJavaScriptEnabled(true);
         config.setDomStorageEnabled(true);
+        config.setAllowFileAccess(false);
+        config.setAllowContentAccess(true);
 
         webView.addJavascriptInterface(
             new PonteAndroid(), "AndroidAlarme");
@@ -68,13 +72,17 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(
-                    WebView view, WebResourceRequest request) {
+                    WebView view,
+                    WebResourceRequest request) {
 
                 Uri uri = request.getUrl();
 
                 if ("https".equals(uri.getScheme())
                     && "davizinhohhh-pixel.github.io"
-                        .equals(uri.getHost())) {
+                        .equals(uri.getHost())
+                    && uri.getPath() != null
+                    && uri.getPath().startsWith(
+                        "/lembrete-medicamentos/")) {
                     return false;
                 }
 
@@ -90,6 +98,39 @@ public class MainActivity extends Activity {
 
         setContentView(webView);
         webView.loadUrl(SITE);
+
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(
+                    Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                new String[]{
+                    Manifest.permission.POST_NOTIFICATIONS
+                }, 101);
+        }
+    }
+
+    private PendingIntent criarAlarme(
+            String id, String remedio) {
+
+        Intent intent = new Intent(
+            this, AlarmeReceiver.class);
+
+        intent.setAction(
+            "com.lembretemedicamentos.ALARME");
+
+        intent.setData(Uri.parse(
+            "meuremedio://alarme/" + Uri.encode(id)));
+
+        intent.putExtra("remedio", remedio);
+
+        return PendingIntent.getBroadcast(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT |
+            PendingIntent.FLAG_IMMUTABLE
+        );
     }
 
     public class PonteAndroid {
@@ -109,51 +150,88 @@ public class MainActivity extends Activity {
 
             if (manager == null) return false;
 
-            if (Build.VERSION.SDK_INT >= 31
-                    && !manager.canScheduleExactAlarms()) {
+            try {
+                if (Build.VERSION.SDK_INT >= 31
+                        && !manager.canScheduleExactAlarms()) {
+                    return false;
+                }
+
+                PendingIntent pendente =
+                    criarAlarme(id, remedio);
+
+                if (Build.VERSION.SDK_INT >= 23) {
+                    manager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        horario,
+                        pendente
+                    );
+                } else {
+                    manager.setExact(
+                        AlarmManager.RTC_WAKEUP,
+                        horario,
+                        pendente
+                    );
+                }
+
+                return true;
+
+            } catch (SecurityException e) {
+                return false;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean cancelarAlarme(String id) {
+
+            if (id == null || id.isEmpty()) {
                 return false;
             }
 
-            Intent intent = new Intent(
-                MainActivity.this, AlarmeReceiver.class);
+            try {
+                AlarmManager manager =
+                    (AlarmManager) getSystemService(
+                        Context.ALARM_SERVICE);
 
-            intent.setAction(
-                "com.lembretemedicamentos.ALARME");
-            intent.setData(Uri.parse(
-                "meuremedio://alarme/" + Uri.encode(id)));
-            intent.putExtra("remedio", remedio);
+                if (manager == null) return false;
 
-            PendingIntent pendente = PendingIntent.getBroadcast(
-                MainActivity.this,
-                0,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT |
-                PendingIntent.FLAG_IMMUTABLE
-            );
+                PendingIntent pendente =
+                    criarAlarme(id, "");
 
-            manager.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                horario,
-                pendente
-            );
+                manager.cancel(pendente);
+                pendente.cancel();
 
-            return true;
+                return true;
+
+            } catch (Exception e) {
+                return false;
+            }
         }
 
         @JavascriptInterface
         public void solicitarPermissaoAlarme() {
+
             if (Build.VERSION.SDK_INT >= 31) {
                 AlarmManager manager =
                     (AlarmManager) getSystemService(
                         Context.ALARM_SERVICE);
 
-                if (!manager.canScheduleExactAlarms()) {
+                if (manager != null
+                        && !manager.canScheduleExactAlarms()) {
+
                     runOnUiThread(() -> {
-                        Intent intent = new Intent(
-                            Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
-                        intent.setData(Uri.parse(
-                            "package:" + getPackageName()));
-                        startActivity(intent);
+                        try {
+                            Intent intent = new Intent(
+                                Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+
+                            intent.setData(Uri.parse(
+                                "package:" + getPackageName()));
+
+                            startActivity(intent);
+                        } catch (Exception e) {
+                            // Permissão indisponível.
+                        }
                     });
                 }
             }
@@ -181,7 +259,7 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView.canGoBack()) {
+        if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
             super.onBackPressed();
