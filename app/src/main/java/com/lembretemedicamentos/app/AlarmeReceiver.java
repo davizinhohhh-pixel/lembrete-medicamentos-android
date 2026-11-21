@@ -1,15 +1,17 @@
 
 package com.lembretemedicamentos.app;
 
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioAttributes;
 import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
-import androidx.core.app.NotificationCompat;
 
 public class AlarmeReceiver extends BroadcastReceiver {
 
@@ -28,7 +30,15 @@ public class AlarmeReceiver extends BroadcastReceiver {
             (NotificationManager) context.getSystemService(
                 Context.NOTIFICATION_SERVICE);
 
+        if (manager == null) {
+            return;
+        }
+
+        Uri som = RingtoneManager.getDefaultUri(
+            RingtoneManager.TYPE_ALARM);
+
         if (Build.VERSION.SDK_INT >= 26) {
+
             NotificationChannel channel =
                 new NotificationChannel(
                     canal,
@@ -36,14 +46,19 @@ public class AlarmeReceiver extends BroadcastReceiver {
                     NotificationManager.IMPORTANCE_HIGH);
 
             channel.enableVibration(true);
-            channel.setSound(
-                RingtoneManager.getDefaultUri(
-                    RingtoneManager.TYPE_ALARM), null);
+
+            AudioAttributes audio =
+                new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .build();
+
+            channel.setSound(som, audio);
 
             manager.createNotificationChannel(channel);
         }
 
-        Intent abrir = new Intent(context, MainActivity.class);
+        Intent abrir = new Intent(
+            context, MainActivity.class);
 
         PendingIntent pending = PendingIntent.getActivity(
             context,
@@ -52,17 +67,24 @@ public class AlarmeReceiver extends BroadcastReceiver {
             PendingIntent.FLAG_UPDATE_CURRENT |
             PendingIntent.FLAG_IMMUTABLE);
 
-        NotificationCompat.Builder aviso =
-            new NotificationCompat.Builder(context, canal)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle("Hora do remédio!")
-                .setContentText("Tomar " + remedio)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
-                .setContentIntent(pending)
-                .setSound(RingtoneManager.getDefaultUri(
-                    RingtoneManager.TYPE_ALARM))
-                .setVibrate(new long[]{0, 1000, 500, 1000});
+        Notification.Builder aviso;
+
+        if (Build.VERSION.SDK_INT >= 26) {
+            aviso = new Notification.Builder(context, canal);
+        } else {
+            aviso = new Notification.Builder(context);
+            aviso.setPriority(Notification.PRIORITY_HIGH);
+            aviso.setSound(som);
+            aviso.setVibrate(
+                new long[]{0, 1000, 500, 1000});
+        }
+
+        aviso.setSmallIcon(
+                android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle("Hora do remédio!")
+            .setContentText("Tomar " + remedio)
+            .setAutoCancel(true)
+            .setContentIntent(pending);
 
         manager.notify(1001, aviso.build());
     }
