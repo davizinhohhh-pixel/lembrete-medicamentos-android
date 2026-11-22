@@ -11,10 +11,13 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.view.WindowInsets;
+import android.widget.FrameLayout;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -111,7 +114,20 @@ public class MainActivity extends Activity {
             }
         });
 
-        setContentView(webView);
+        if (Build.VERSION.SDK_INT >= 35) {
+            FrameLayout tela = new FrameLayout(this);
+            tela.addView(webView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            tela.setOnApplyWindowInsetsListener((view, insets) -> {
+                Insets margens = insets.getInsets(WindowInsets.Type.systemBars()
+                    | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
+                view.setPadding(margens.left, margens.top, margens.right, margens.bottom);
+                return insets;
+            });
+            setContentView(tela);
+        } else {
+            setContentView(webView);
+        }
         webView.loadUrl(PAGINA_APP);
     }
 

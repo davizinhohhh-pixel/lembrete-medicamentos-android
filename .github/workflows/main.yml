@@ -1,16 +1,17 @@
 
-name: Gerar APK Android
+name: Gerar pacote Android
 
 on:
   workflow_dispatch:
     inputs:
       variante:
-        description: Tipo de APK
+        description: Tipo de pacote
         type: choice
         default: teste
         options:
           - teste
           - atualizacao
+          - play
 
 permissions:
   contents: read
@@ -33,6 +34,7 @@ jobs:
         run: |
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0"
 
       - name: Gerar APK de teste
         if: inputs.variante == 'teste'
@@ -55,9 +57,29 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$MEU_REMEDIO_KEYSTORE"
           sh ./gradlew :app:assembleRelease --stacktrace
 
-      - name: Disponibilizar APK
+      - name: Gerar AAB assinado para a Play Console
+        if: inputs.variante == 'play'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MEU_REMEDIO_PLAY_KEYSTORE_BASE64 }}
+          MEU_REMEDIO_STORE_PASSWORD: ${{ secrets.MEU_REMEDIO_PLAY_STORE_PASSWORD }}
+          MEU_REMEDIO_KEY_ALIAS: ${{ secrets.MEU_REMEDIO_PLAY_KEY_ALIAS }}
+          MEU_REMEDIO_KEY_PASSWORD: ${{ secrets.MEU_REMEDIO_PLAY_KEY_PASSWORD }}
+        run: |
+          : "${KEYSTORE_BASE64:?Configure a chave de upload da Play Console}"
+          : "${MEU_REMEDIO_STORE_PASSWORD:?Configure a senha do keystore}"
+          : "${MEU_REMEDIO_KEY_ALIAS:?Configure o alias da chave}"
+          : "${MEU_REMEDIO_KEY_PASSWORD:?Configure a senha da chave}"
+          export MEU_REMEDIO_KEYSTORE="$(mktemp "$RUNNER_TEMP/meu-remedio-play.XXXXXX")"
+          trap 'rm -f "$MEU_REMEDIO_KEYSTORE"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$MEU_REMEDIO_KEYSTORE"
+          sh ./gradlew :app:bundleRelease --stacktrace
+          jarsigner -verify app/build/outputs/bundle/release/app-release.aab | grep -F 'jar verified.'
+
+      - name: Disponibilizar pacote
         uses: actions/upload-artifact@v4
         with:
-          name: meu-remedio-idoso-${{ inputs.variante }}
-          path: app/build/outputs/apk/*/*.apk
+          name: meu-remedio-${{ inputs.variante }}
+          path: |
+            app/build/outputs/apk/*/*.apk
+            app/build/outputs/bundle/release/*.aab
           if-no-files-found: error

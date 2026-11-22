@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace 'com.lembretemedicamentos.app'
-    compileSdk 35
+    compileSdk 36
 
     def keystore = System.getenv('MEU_REMEDIO_KEYSTORE')
     if (keystore) {
@@ -31,7 +31,7 @@ android {
         manifestPlaceholders = [nomeAplicativo: 'Meu Remédio']
         applicationId 'com.lembretemedicamentos.app'
         minSdk 23
-        targetSdk 35
+        targetSdk 36
         versionCode 4
         versionName '1.3'
     }

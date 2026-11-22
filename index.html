@@ -392,8 +392,10 @@ prompt(android?'Copie o código da família:':'Copie este link:',valor);
 
 window.gerarConvite=()=>{
 let mensagem;
-if(android&&window.AndroidAlarme.versaoTeste()){
-mensagem='https://raw.githubusercontent.com/davizinhohhh-pixel/lembrete-medicamentos-android/teste/meu-remedio-idoso/downloads/Meu-Remedio-Completo-Teste-1.3.apk';
+if(android){
+mensagem=window.AndroidAlarme.versaoTeste()
+?'https://raw.githubusercontent.com/davizinhohhh-pixel/lembrete-medicamentos-android/teste/meu-remedio-idoso/downloads/Meu-Remedio-Completo-Teste-1.3.apk'
+:'https://play.google.com/store/apps/details?id=com.lembretemedicamentos.app';
 }else{
 const link=linkConvite();
 if(!link)return;
