@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function grupo(familia) {
+      return /databases/$(database)/documents/familiasDoseVoz/$(familia);
+    }
+
+    function convite(codigo) {
+      return /databases/$(database)/documents/convitesDoseVoz/$(codigo);
+    }
+
+    function temPerfil(familia, perfil) {
+      return autenticado() && get(grupo(familia)).data[perfil] == request.auth.uid;
+    }
+
+    function membro(familia) {
+      return autenticado() && request.auth.uid in [
+        get(grupo(familia)).data.familiar, get(grupo(familia)).data.idoso
+      ];
+    }
+
+    function valido(entrada) {
+      return entrada.usadoPor == null
+        && request.time < entrada.criadoEm + duration.value(24, 'h');
+    }
+
+    function vinculoValido(familia) {
+      let dados = request.resource.data;
+      let conviteAntes = get(convite(dados.conviteUsado)).data;
+      let conviteDepois = getAfter(convite(dados.conviteUsado)).data;
+      return valido(conviteAntes) && conviteAntes.familia == familia
+        && conviteDepois.usadoPor == request.auth.uid;
+    }
+
+    function confirmacaoValida(familia, registro) {
+      let entrada = request.resource.data;
+      return entrada.medicamentoId is string
+        && entrada.medicamentoId.matches('^[A-Za-z0-9_-]{1,128}$')
+        && entrada.dia is string
+        && entrada.dia.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && registro == entrada.dia + '_' + entrada.medicamentoId
+        && entrada.status == 'Tomado'
+        && exists(/databases/$(database)/documents/familiasDoseVoz/$(familia)/medicamentos/$(entrada.medicamentoId));
+    }
+
+    match /familiasDoseVoz/{familia} {
+      allow get: if autenticado()
+        && request.auth.uid in [resource.data.familiar, resource.data.idoso];
+
+      allow create: if autenticado()
+        && request.resource.data.keys().hasOnly(['familiar', 'idoso', 'conviteUsado'])
+        && request.resource.data.familiar == request.auth.uid
+        && request.resource.data.idoso == null && request.resource.data.conviteUsado == null;
+
+      allow update: if autenticado() && resource.data.idoso == null
+        && resource.data.familiar != request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['idoso', 'conviteUsado'])
+        && request.resource.data.idoso == request.auth.uid
+        && request.resource.data.conviteUsado is string
+        && request.resource.data.conviteUsado.matches('^[a-f0-9]{24}$')
+        && vinculoValido(familia);
+
+      match /medicamentos/{medicamento} {
+        allow read: if membro(familia);
+        allow create, update, delete: if temPerfil(familia, 'familiar');
+      }
+
+      match /historico/{registro} {
+        allow read: if membro(familia);
+        allow create, update: if temPerfil(familia, 'idoso') && confirmacaoValida(familia, registro);
+      }
+    }
+
+    match /convitesDoseVoz/{codigo} {
+      allow get: if autenticado() && (valido(resource.data)
+        || resource.data.usadoPor == request.auth.uid
+        || temPerfil(resource.data.familia, 'familiar'));
+
+      allow create: if autenticado() && codigo.matches('^[a-f0-9]{24}$')
+        && request.resource.data.keys().hasOnly(['familia', 'criadoEm', 'usadoPor'])
+        && request.resource.data.familia is string
+        && request.resource.data.criadoEm == request.time
+        && request.resource.data.usadoPor == null
+        && getAfter(grupo(request.resource.data.familia)).data.familiar == request.auth.uid
+        && getAfter(grupo(request.resource.data.familia)).data.idoso == null;
+
+      allow update: if autenticado() && valido(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usadoPor'])
+        && request.resource.data.usadoPor == request.auth.uid
+        && get(grupo(resource.data.familia)).data.idoso == null
+        && getAfter(grupo(resource.data.familia)).data.idoso == request.auth.uid
+        && getAfter(grupo(resource.data.familia)).data.conviteUsado == codigo;
+    }
+  }
+}

@@ -61,8 +61,8 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 <h3>🔗 Conexão familiar</h3>
 <label for="codigo">Código da família</label>
 <input id="codigo" placeholder="Digite ou cole o código" autocapitalize="none" spellcheck="false">
-<button class="primary" onclick="conectar()">Conectar</button>
-<button data-familiar onclick="criarFamilia()">Criar código</button>
+<button id="conectarFamilia" class="primary" onclick="conectar()">Conectar</button>
+<button id="criarFamilia" data-familiar onclick="criarFamilia()">Criar código</button>
 <button data-familiar id="permitirAvisosFamilia" class="hidden" onclick="AndroidAlarme.prepararAvisosFamilia()">Ativar alertas do Familiar</button>
 <button data-familiar class="primary" onclick="gerarConvite()">📲 Enviar pelo WhatsApp</button>
 <button id="copiarConvite" data-familiar onclick="copiarConvite()">📋 Copiar convite</button>
@@ -126,7 +126,7 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {initializeAuth,indexedDBLocalPersistence,browserLocalPersistence,browserSessionPersistence,signInAnonymously,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
-import {initializeFirestore,persistentLocalCache,collection,doc,setDoc,deleteDoc,onSnapshot} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+import {initializeFirestore,persistentLocalCache,collection,doc,setDoc,deleteDoc,onSnapshot,writeBatch,runTransaction,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 
 const firebaseConfig={
 apiKey:'AIzaSyAMYY2ePUMyikwEHgI3kSpXApz76F049fo',
@@ -144,13 +144,16 @@ const db=initializeFirestore(app,{localCache:persistentLocalCache()});
 const $=id=>document.getElementById(id);
 
 let usuario=null;
-let codigo=localStorage.getItem('codigoFamilia')||'';
 const android=document.documentElement.classList.contains('android-app');
+const COLECAO_FAMILIAS=android?'familiasDoseVoz':'familias';
+const chaveFamilia=papel=>'dosevozFamilia_'+papel;
+let codigo=android?'':localStorage.getItem('codigoFamilia')||'';
 const CHAVE_PERFIL='perfilRemedioAndroid';
 const perfilSalvo=localStorage.getItem(CHAVE_PERFIL);
 let perfil=android
-?(perfilSalvo==='escolher'?'':perfilSalvo||(codigo?'idoso':''))
+?(perfilSalvo==='escolher'?'':perfilSalvo||'')
 :localStorage.getItem('perfilRemedio')||'familiar';
+if(android&&perfil)codigo=localStorage.getItem(chaveFamilia(perfil))||'';
 const androidIdoso=()=>android&&perfil==='idoso';
 let medicamentos=[],historico=[],cancelar=[];
 let medicamentosProntos=false,historicoPronto=false;
@@ -159,11 +162,16 @@ let alarmeTimer=null,alarmeId=null;
 let alertaFamilia=new Set();
 let notificadosFamilia=new Set();
 let confirmacoesLocais=new Set();
+let vinculando=false;
 
 const CHAVE='meuremedio_alarmas_v3';
 
 
-$('codigo').value=codigo;
+function preencherCodigo(){
+$('codigo').value=android?(perfil==='familiar'&&codigo
+?localStorage.getItem('dosevozConvite_'+codigo)||'':''):codigo;
+}
+preencherCodigo();
 
 function escapar(v){
 return String(v??'').replace(/[&<>"']/g,c=>({
@@ -179,6 +187,10 @@ $(x).classList.toggle('hidden',x!==t));
 };
 
 function aplicarPerfil(){
+$('codigo').readOnly=android&&perfil==='familiar';
+$('conectarFamilia').classList.toggle('hidden',android&&perfil==='familiar');
+$('criarFamilia').textContent=android?(codigo?'Novo código':'Criar família'):'Criar código';
+
 $('copiarConvite').textContent=android?'Copiar código da família':'📋 Copiar convite';
 $('escolhaPerfil').classList.toggle('hidden',!android||!!perfil);
 $('conteudo').classList.toggle('hidden',android&&!perfil);
@@ -194,6 +206,8 @@ window.aba(perfil);
 window.escolherPerfil=novo=>{
 if(!android||perfil||!['familiar','idoso'].includes(novo))return;
 perfil=novo;
+codigo=localStorage.getItem(chaveFamilia(perfil))||'';
+preencherCodigo();
 if(perfil==='familiar')window.AndroidAlarme.prepararAvisosFamilia?.();
 localStorage.setItem(CHAVE_PERFIL,perfil);
 aplicarPerfil();
@@ -201,7 +215,7 @@ carregar();
 };
 
 window.trocarPerfil=()=>{
-if(!android||!perfil)return;
+if(!android||!perfil||vinculando)return;
 if(perfil==='idoso'){
 if(!confirm('Trocar de perfil interrompe os lembretes deste celular até voltar ao perfil Idoso. Continuar?'))return;
 if(!window.AndroidAlarme.salvarHorarios('[]')){
@@ -210,6 +224,8 @@ return;
 }
 }
 perfil='';
+codigo='';
+preencherCodigo();
 localStorage.setItem(CHAVE_PERFIL,'escolher');
 aplicarPerfil();
 carregar();
@@ -299,8 +315,8 @@ if(!usuario||!codigo||!perfil)return;
 
 $('status').textContent='Conectando...';
 
-const base=collection(db,'familias',codigo,'medicamentos');
-const hist=collection(db,'familias',codigo,'historico');
+const base=collection(db,COLECAO_FAMILIAS,codigo,'medicamentos');
+const hist=collection(db,COLECAO_FAMILIAS,codigo,'historico');
 
 cancelar.push(onSnapshot(base,{includeMetadataChanges:true},s=>{
 medicamentos=s.docs.map(d=>({...d.data(),id:d.id}));
@@ -323,29 +339,47 @@ $('status').textContent='Erro no histórico: '+e.message;
 }));
 }
 
-window.conectar=()=>{
-let v=$('codigo').value.trim();
-if(android&&v.startsWith('https://')){
-try{
-const link=new URL(v);
-if(link.origin==='https://davizinhohhh-pixel.github.io'&&
-link.pathname==='/lembrete-medicamentos/'){
-v=link.searchParams.get('familia')||'';
+window.conectar=async()=>{
+const v=$('codigo').value.trim();
+if(android){
+if(perfil!=='idoso'||vinculando)return;
+if(!usuario){alert('Aguarde a autenticação e tente novamente.');return;}
+if(!/^[a-f0-9]{24}$/.test(v)){
+alert('Cole o código de 24 caracteres enviado pelo Familiar.');
+return;
 }
-}catch(e){console.error(e);}
+if(codigo){
+alert('Este perfil já está vinculado a uma família.');
+return;
+}
+vinculando=true;
+try{
+const uid=usuario.uid;
+const familia=await runTransaction(db,async transacao=>{
+const ref=doc(db,'convitesDoseVoz',v);
+const entrada=(await transacao.get(ref)).data();
+if(!entrada)throw Error('Convite indisponível.');
+if(entrada.usadoPor===uid)return entrada.familia;
+if(entrada.usadoPor!==null)throw Error('Convite já utilizado.');
+const grupo=doc(db,COLECAO_FAMILIAS,entrada.familia);
+transacao.update(grupo,{idoso:uid,conviteUsado:v});
+transacao.update(ref,{usadoPor:uid});
+return entrada.familia;
+});
+codigo=familia;
+localStorage.setItem(chaveFamilia('idoso'),familia);
+preencherCodigo();
+carregar();
+}catch(e){
+alert('Não foi possível vincular. Peça ao Familiar um código válido e confira a conexão.');
+}finally{
+vinculando=false;
+}
+return;
 }
 if(!/^[a-zA-Z0-9_-]{12,80}$/.test(v)){
 alert('Use um código de 12 a 80 letras, números, hífen ou sublinhado.');
 return;
-}
-if(v===codigo&&androidIdoso()&&medicamentosProntos&&historicoPronto)return;
-if(androidIdoso()&&codigo&&v!==codigo){
-if(!confirm('Trocar a família e remover os alarmes da família anterior?'))return;
-const ponte=window.AndroidAlarme;
-if(!ponte.salvarHorarios('[]')){
-alert('Não foi possível remover os alarmes anteriores.');
-return;
-}
 }
 codigo=v;
 $('codigo').value=codigo;
@@ -353,8 +387,31 @@ localStorage.setItem('codigoFamilia',codigo);
 carregar();
 };
 
-window.criarFamilia=()=>{
-if(android&&perfil!=='familiar')return;
+window.criarFamilia=async()=>{
+if(android){
+if(perfil!=='familiar'||vinculando)return;
+if(!usuario){alert('Aguarde a autenticação e tente novamente.');return;}
+vinculando=true;
+try{
+const familia=codigo||crypto.randomUUID();
+const convite=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,'0')).join('');
+const lote=writeBatch(db);
+if(!codigo)lote.set(doc(db,COLECAO_FAMILIAS,familia),{familiar:usuario.uid,idoso:null,conviteUsado:null});
+lote.set(doc(db,'convitesDoseVoz',convite),{familia,criadoEm:serverTimestamp(),usadoPor:null});
+await lote.commit();
+codigo=familia;
+localStorage.setItem(chaveFamilia('familiar'),familia);
+localStorage.setItem('dosevozConvite_'+familia,convite);
+preencherCodigo();
+aplicarPerfil();
+carregar();
+}catch(e){
+alert('Não foi possível gerar um código. Confira a conexão. Se o Idoso já estiver vinculado, o vínculo continua ativo.');
+}finally{
+vinculando=false;
+}
+return;
+}
 perfil='familiar';
 localStorage.setItem('perfilRemedio',perfil);
 aplicarPerfil();
@@ -377,7 +434,7 @@ return url.toString();
 }
 
 window.copiarConvite=async()=>{
-const valor=android?codigo:linkConvite();
+const valor=android?localStorage.getItem('dosevozConvite_'+codigo):linkConvite();
 if(!valor){
 if(android)alert('Primeiro toque em Criar código ou Conectar.');
 return;
@@ -393,9 +450,7 @@ prompt(android?'Copie o código da família:':'Copie este link:',valor);
 window.gerarConvite=()=>{
 let mensagem;
 if(android){
-mensagem=window.AndroidAlarme.versaoTeste()
-?'https://raw.githubusercontent.com/davizinhohhh-pixel/lembrete-medicamentos-android/teste/meu-remedio-idoso/downloads/Meu-Remedio-Completo-Teste-1.3.apk'
-:'https://play.google.com/store/apps/details?id=com.lembretemedicamentos.app';
+mensagem='https://play.google.com/store/apps/details?id=com.lembretemedicamentos.app';
 }else{
 const link=linkConvite();
 if(!link)return;
@@ -408,7 +463,7 @@ const parametros=new URL(location.href).searchParams;
 const recebido=parametros.get('familia');
 const telaConvite=parametros.get('tela');
 
-if(recebido&&/^[a-zA-Z0-9_-]{12,80}$/.test(recebido)){
+if(!android&&recebido&&/^[a-zA-Z0-9_-]{12,80}$/.test(recebido)){
 $('codigo').value=recebido;
 codigo=recebido;
 localStorage.setItem('codigoFamilia',codigo);
@@ -468,7 +523,7 @@ return;
 try{
 const foto=await reduzirFoto($('foto').files[0]);
 await setDoc(
-doc(db,'familias',codigo,'medicamentos',crypto.randomUUID()),
+doc(db,COLECAO_FAMILIAS,codigo,'medicamentos',crypto.randomUUID()),
 {nome,hora,cor,dose,idosoNome,foto,criadoEm:Date.now()}
 );
 $('nome').value='';
@@ -485,7 +540,7 @@ window.excluir=async id=>{
 if(perfil!=='familiar')return;
 if(!confirm('Excluir este medicamento?'))return;
 try{
-await deleteDoc(doc(db,'familias',codigo,'medicamentos',id));
+await deleteDoc(doc(db,COLECAO_FAMILIAS,codigo,'medicamentos',id));
 }catch(e){
 alert(e.message);
 }
@@ -504,7 +559,7 @@ pararAlarme();
 }
 
 try{
-await setDoc(doc(db,'familias',codigo,'historico',dia+'_'+id),{
+await setDoc(doc(db,COLECAO_FAMILIAS,codigo,'historico',dia+'_'+id),{
 medicamentoId:id,
 dia,
 nome:m.nome,
