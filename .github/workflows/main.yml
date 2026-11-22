@@ -3,9 +3,14 @@ name: Gerar APK Android
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+    inputs:
+      variante:
+        description: Tipo de APK
+        type: choice
+        default: teste
+        options:
+          - teste
+          - atualizacao
 
 permissions:
   contents: read
@@ -29,14 +34,30 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Gerar APK
+      - name: Gerar APK de teste
+        if: inputs.variante == 'teste'
+        run: sh ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Gerar APK de atualização assinado
+        if: inputs.variante == 'atualizacao'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MEU_REMEDIO_KEYSTORE_BASE64 }}
+          MEU_REMEDIO_STORE_PASSWORD: ${{ secrets.MEU_REMEDIO_STORE_PASSWORD }}
+          MEU_REMEDIO_KEY_ALIAS: ${{ secrets.MEU_REMEDIO_KEY_ALIAS }}
+          MEU_REMEDIO_KEY_PASSWORD: ${{ secrets.MEU_REMEDIO_KEY_PASSWORD }}
         run: |
-          chmod +x ./gradlew
-          ./gradlew assembleDebug --stacktrace
+          : "${KEYSTORE_BASE64:?Configure a chave de assinatura existente}"
+          : "${MEU_REMEDIO_STORE_PASSWORD:?Configure a senha do keystore}"
+          : "${MEU_REMEDIO_KEY_ALIAS:?Configure o alias da chave}"
+          : "${MEU_REMEDIO_KEY_PASSWORD:?Configure a senha da chave}"
+          export MEU_REMEDIO_KEYSTORE="$(mktemp "$RUNNER_TEMP/meu-remedio.XXXXXX")"
+          trap 'rm -f "$MEU_REMEDIO_KEYSTORE"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$MEU_REMEDIO_KEYSTORE"
+          sh ./gradlew :app:assembleRelease --stacktrace
 
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
-          name: aplicativo-android
-          path: '**/build/outputs/apk/debug/*.apk'
+          name: meu-remedio-idoso-${{ inputs.variante }}
+          path: app/build/outputs/apk/*/*.apk
           if-no-files-found: error

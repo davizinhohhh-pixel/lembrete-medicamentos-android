@@ -4,7 +4,6 @@ package com.lembretemedicamentos.app;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlarmManager;
-import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -15,10 +14,14 @@ import android.provider.Settings;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.ValueCallback;
+
+import java.io.IOException;
+import java.util.Collections;
 
 public class MainActivity extends Activity {
 
@@ -30,7 +33,7 @@ public class MainActivity extends Activity {
         "https://davizinhohhh-pixel.github.io/lembrete-medicamentos/";
 
     private static final String SITE_IDOSO =
-        SITE + "?tela=idoso";
+        SITE + "?android=idoso";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -75,47 +78,32 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
 
             @Override
-            public boolean shouldOverrideUrlLoading(
-                    WebView view,
-                    WebResourceRequest request) {
-
-                Uri uri = request.getUrl();
-
-                if ("https".equals(uri.getScheme())
-                    && "davizinhohhh-pixel.github.io"
-                        .equals(uri.getHost())
-                    && uri.getPath() != null
-                    && uri.getPath().startsWith(
-                        "/lembrete-medicamentos/")) {
-                    return false;
+            public WebResourceResponse shouldInterceptRequest(
+                    WebView view, WebResourceRequest request) {
+                if (!request.isForMainFrame() || !SITE_IDOSO.equals(request.getUrl().toString())) {
+                    return null;
                 }
-
                 try {
-                    startActivity(new Intent(
-                        Intent.ACTION_VIEW, uri));
-                } catch (Exception e) {
-                    return true;
+                    return new WebResourceResponse("text/html", "UTF-8", 200, "OK",
+                        Collections.singletonMap("Content-Security-Policy",
+                            "frame-src 'none'; object-src 'none'; base-uri 'none'; "
+                            + "script-src 'unsafe-inline' https://www.gstatic.com/firebasejs/10.12.5/"),
+                        getAssets().open("index.html"));
+                } catch (IOException e) {
+                    return new WebResourceResponse("text/plain", "UTF-8", 500,
+                        "Asset unavailable", Collections.emptyMap(), null);
                 }
-                return true;
             }
 
             @Override
-            public void onPageFinished(
-                    WebView view, String url) {
+            public boolean shouldOverrideUrlLoading(
+                    WebView view, WebResourceRequest request) {
+                return !request.isForMainFrame() || abrirLink(request.getUrl());
+            }
 
-                super.onPageFinished(view, url);
-
-                if (url != null && url.startsWith(SITE)) {
-                    view.evaluateJavascript(
-                        "(function() {" +
-                        "if (localStorage.getItem('perfilRemedio') !== 'idoso') {" +
-                        "localStorage.setItem('perfilRemedio', 'idoso');" +
-                        "location.reload();" +
-                        "}" +
-                        "})();",
-                        null
-                    );
-                }
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return abrirLink(Uri.parse(url));
             }
         });
 
@@ -133,108 +121,60 @@ public class MainActivity extends Activity {
         }
     }
 
-    private PendingIntent criarAlarme(
-            String id, String remedio) {
+    private boolean abrirLink(Uri uri) {
+        if (SITE_IDOSO.equals(uri.toString())) return false;
+        if ("https".equals(uri.getScheme())) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            } catch (android.content.ActivityNotFoundException ignored) {
+                // O aparelho não tem um aplicativo para abrir o link.
+            }
+        }
+        return true;
+    }
 
-        Intent intent = new Intent(
-            this, AlarmeReceiver.class);
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 101 && webView != null) {
+            webView.evaluateJavascript("window.atualizarStatusAlarmes?.()", null);
+        }
+    }
 
-        intent.setAction(
-            "com.lembretemedicamentos.ALARME");
-
-        intent.setData(Uri.parse(
-            "meuremedio://alarme/" + Uri.encode(id)));
-
-        intent.putExtra("remedio", remedio);
-
-        return PendingIntent.getBroadcast(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT |
-            PendingIntent.FLAG_IMMUTABLE
-        );
+    @Override
+    protected void onResume() {
+        super.onResume();
+        Alarmes.reagendar(this);
+        if (webView != null) {
+            webView.evaluateJavascript("window.atualizarStatusAlarmes?.()", null);
+        }
     }
 
     public class PonteAndroid {
 
         @JavascriptInterface
-        public boolean agendarAlarme(
-                String id, String remedio, long horario) {
-
-            if (id == null || id.isEmpty()
-                    || horario <= System.currentTimeMillis()) {
-                return false;
-            }
-
-            AlarmManager manager =
-                (AlarmManager) getSystemService(
-                    Context.ALARM_SERVICE);
-
-            if (manager == null) return false;
-
-            try {
-                if (Build.VERSION.SDK_INT >= 31
-                        && !manager.canScheduleExactAlarms()) {
-                    return false;
-                }
-
-                PendingIntent pendente =
-                    criarAlarme(id, remedio);
-
-                if (Build.VERSION.SDK_INT >= 23) {
-                    manager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        horario,
-                        pendente
-                    );
-                } else {
-                    manager.setExact(
-                        AlarmManager.RTC_WAKEUP,
-                        horario,
-                        pendente
-                    );
-                }
-
-                return true;
-
-            } catch (SecurityException e) {
-                return false;
-            } catch (Exception e) {
-                return false;
-            }
+        public boolean salvarHorarios(String horarios) {
+            return Alarmes.salvar(MainActivity.this, horarios);
         }
 
         @JavascriptInterface
-        public boolean cancelarAlarme(String id) {
+        public boolean limparAlarmeAntigo(String id) {
+            return Alarmes.cancelarAntigo(MainActivity.this, id);
+        }
 
-            if (id == null || id.isEmpty()) {
-                return false;
-            }
+        @JavascriptInterface
+        public boolean alarmesExatosPermitidos() {
+            return Alarmes.permitido(MainActivity.this);
+        }
 
-            try {
-                AlarmManager manager =
-                    (AlarmManager) getSystemService(
-                        Context.ALARM_SERVICE);
-
-                if (manager == null) return false;
-
-                PendingIntent pendente =
-                    criarAlarme(id, "");
-
-                manager.cancel(pendente);
-                pendente.cancel();
-
-                return true;
-
-            } catch (Exception e) {
-                return false;
-            }
+        @JavascriptInterface
+        public boolean notificacoesPermitidas() {
+            return AlarmeReceiver.notificacoesPermitidas(MainActivity.this);
         }
 
         @JavascriptInterface
         public void solicitarPermissaoAlarme() {
-
             if (Build.VERSION.SDK_INT >= 31) {
                 AlarmManager manager =
                     (AlarmManager) getSystemService(
@@ -256,7 +196,19 @@ public class MainActivity extends Activity {
                             // Permissão indisponível.
                         }
                     });
+                    return;
                 }
+            }
+            if (!notificacoesPermitidas()) {
+                runOnUiThread(() -> {
+                    Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getPackageName()));
+                    if (Build.VERSION.SDK_INT >= 26) {
+                        intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+                    }
+                    startActivity(intent);
+                });
             }
         }
     }

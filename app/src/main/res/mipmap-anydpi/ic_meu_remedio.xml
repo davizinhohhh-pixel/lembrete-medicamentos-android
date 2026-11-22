@@ -1,0 +1,4 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/icone_meu_remedio_fundo" />
+    <item android:drawable="@drawable/icone_meu_remedio_simbolo" />
+</layer-list>

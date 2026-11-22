@@ -1,6 +1,7 @@
 
 package com.lembretemedicamentos.app;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -8,52 +9,66 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.net.Uri;
+import android.text.TextUtils;
+
+import java.util.List;
 import android.os.Build;
 
 public class AlarmeReceiver extends BroadcastReceiver {
 
+    private static final String CANAL = "alarme_medicamentos";
+
+    static boolean notificacoesPermitidas(Context context) {
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null || (Build.VERSION.SDK_INT >= 24 && !manager.areNotificationsEnabled())) return false;
+        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(
+                Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            return false;
+        }
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel channel = manager.getNotificationChannel(CANAL);
+            return channel == null || (channel.getImportance() != NotificationManager.IMPORTANCE_NONE
+                && channel.getSound() != null);
+        }
+        return true;
+    }
+
     @Override
     public void onReceive(Context context, Intent intent) {
-
-        String remedio = intent.getStringExtra("remedio");
-
-        if (remedio == null || remedio.isEmpty()) {
-            remedio = "seu medicamento";
-        }
-
-        String canal = "alarme_medicamentos";
-
-        NotificationManager manager =
-            (NotificationManager) context.getSystemService(
-                Context.NOTIFICATION_SERVICE);
-
-        if (manager == null) {
+        String texto;
+        long horario = intent.getLongExtra("horario", 0);
+        if (Alarmes.DISPARAR.equals(intent.getAction())) {
+            List<String> nomes = Alarmes.disparar(context, horario);
+            if (nomes.isEmpty()) return;
+            texto = TextUtils.join(", ", nomes);
+        } else if (Alarmes.ANTIGO.equals(intent.getAction())) {
+            texto = intent.getStringExtra("remedio");
+            if (texto == null || texto.isEmpty()) texto = "seu medicamento";
+        } else {
+            Alarmes.reagendar(context);
             return;
         }
 
-        Uri som = RingtoneManager.getDefaultUri(
-            RingtoneManager.TYPE_ALARM);
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null || (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(
+                Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) {
+            return;
+        }
+
+        Uri som = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+        AudioAttributes audio = new AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .build();
 
         if (Build.VERSION.SDK_INT >= 26) {
-
-            NotificationChannel channel =
-                new NotificationChannel(
-                    canal,
-                    "Alarmes de medicamentos",
-                    NotificationManager.IMPORTANCE_HIGH);
-
+            NotificationChannel channel = new NotificationChannel(CANAL,
+                "Alarmes de medicamentos", NotificationManager.IMPORTANCE_HIGH);
             channel.enableVibration(true);
-
-            AudioAttributes audio =
-                new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .build();
-
             channel.setSound(som, audio);
-
             manager.createNotificationChannel(channel);
         }
 
@@ -70,11 +85,11 @@ public class AlarmeReceiver extends BroadcastReceiver {
         Notification.Builder aviso;
 
         if (Build.VERSION.SDK_INT >= 26) {
-            aviso = new Notification.Builder(context, canal);
+            aviso = new Notification.Builder(context, CANAL);
         } else {
             aviso = new Notification.Builder(context);
             aviso.setPriority(Notification.PRIORITY_HIGH);
-            aviso.setSound(som);
+            aviso.setSound(som, audio);
             aviso.setVibrate(
                 new long[]{0, 1000, 500, 1000});
         }
@@ -82,10 +97,12 @@ public class AlarmeReceiver extends BroadcastReceiver {
         aviso.setSmallIcon(
                 android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle("Hora do remédio!")
-            .setContentText("Tomar " + remedio)
+            .setContentText("Tomar " + texto)
+            .setStyle(new Notification.BigTextStyle().bigText("Tomar " + texto))
+            .setCategory(Notification.CATEGORY_ALARM)
             .setAutoCancel(true)
             .setContentIntent(pending);
 
-        manager.notify(1001, aviso.build());
+        manager.notify(horario == 0 ? null : Long.toString(horario), 1001, aviso.build());
     }
 }

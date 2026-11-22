@@ -6,6 +6,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#176b65">
 <title>Meu Remédio</title>
+<script>
+if(new URL(location.href).searchParams.get('android')==='idoso'&&
+typeof window.AndroidAlarme?.salvarHorarios==='function'){
+document.documentElement.classList.add('android-idoso');
+}
+</script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font:17px Arial;background:#f2f7f5;color:#193b36}
@@ -21,6 +27,8 @@ input,select{width:100%;padding:12px;margin:7px 0 13px;border:1px solid #bbb;bor
 .wide{width:100%}
 .item{border:1px solid #ddd;padding:12px;border-radius:9px;margin:10px 0}
 .hidden{display:none}
+.android-idoso #tabF,.android-idoso #familiar,.android-idoso [data-familiar]{display:none}
+.android-idoso:not(.interface-pronta) #idoso{display:block}
 small{color:#555}
 img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 #lembretes .item{font-size:19px;line-height:1.5}
@@ -44,12 +52,12 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 
 <section id="conexao">
 <h3>🔗 Conexão familiar</h3>
-<label>Código da família</label>
+<label for="codigo">Código da família ou link do convite</label>
 <input id="codigo" placeholder="Mínimo 12 caracteres">
 <button class="primary" onclick="conectar()">Conectar</button>
-<button onclick="criarFamilia()">Criar código</button>
-<button class="primary" onclick="gerarConvite()">📲 Enviar pelo WhatsApp</button>
-<button onclick="copiarConvite()">📋 Copiar convite</button>
+<button data-familiar onclick="criarFamilia()">Criar código</button>
+<button data-familiar class="primary" onclick="gerarConvite()">📲 Enviar pelo WhatsApp</button>
+<button data-familiar onclick="copiarConvite()">📋 Copiar convite</button>
 <p id="status">Aguardando conexão</p>
 <small>Compartilhe o código apenas com pessoas de confiança. A sincronização depende das regras de acesso do Firebase.</small>
 </section>
@@ -108,8 +116,8 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
-import {getAuth,signInAnonymously,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
-import {getFirestore,collection,doc,setDoc,deleteDoc,onSnapshot} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+import {initializeAuth,indexedDBLocalPersistence,browserLocalPersistence,browserSessionPersistence,signInAnonymously,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+import {initializeFirestore,persistentLocalCache,collection,doc,setDoc,deleteDoc,onSnapshot} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 
 const firebaseConfig={
 apiKey:'AIzaSyAMYY2ePUMyikwEHgI3kSpXApz76F049fo',
@@ -122,13 +130,14 @@ measurementId:'G-HTG9CTVYBV'
 };
 
 const app=initializeApp(firebaseConfig);
-const auth=getAuth(app);
-const db=getFirestore(app);
+const auth=initializeAuth(app,{persistence:[indexedDBLocalPersistence,browserLocalPersistence,browserSessionPersistence]});
+const db=initializeFirestore(app,{localCache:persistentLocalCache()});
 const $=id=>document.getElementById(id);
 
 let usuario=null;
 let codigo=localStorage.getItem('codigoFamilia')||'';
-let perfil=localStorage.getItem('perfilRemedio')||'familiar';
+const androidIdoso=document.documentElement.classList.contains('android-idoso');
+let perfil=androidIdoso?'idoso':localStorage.getItem('perfilRemedio')||'familiar';
 let medicamentos=[],historico=[],cancelar=[];
 let medicamentosProntos=false,historicoPronto=false;
 let somAtivo=false,audioCtx;
@@ -136,7 +145,7 @@ let alarmeTimer=null,alarmeId=null;
 let alertaFamilia=new Set();
 
 const CHAVE='meuremedio_alarmas_v3';
-const DIAS=7;
+
 
 $('codigo').value=codigo;
 
@@ -156,7 +165,8 @@ $(x).classList.toggle('hidden',x!==t));
 function aplicarPerfil(){
 $('tabF').classList.toggle('hidden',perfil!=='familiar');
 $('tabI').classList.toggle('hidden',perfil!=='idoso');
-$('conexao').classList.toggle('hidden',perfil==='idoso');
+$('conexao').classList.toggle('hidden',perfil==='idoso'&&!androidIdoso);
+document.querySelectorAll('[data-familiar]').forEach(b=>b.classList.toggle('hidden',perfil!=='familiar'));
 window.aba(perfil);
 }
 
@@ -179,127 +189,50 @@ if('speechSynthesis'in window)speechSynthesis.cancel();
 $('aviso').classList.add('hidden');
 }
 
-function ponteDisponivel(){
-return perfil==='idoso'&&
-typeof window.AndroidAlarme!=='undefined'&&
-typeof window.AndroidAlarme.agendarAlarme==='function'&&
-typeof window.AndroidAlarme.cancelarAlarme==='function';
-}
-
-function lerSalvos(){
-try{
-const dados=JSON.parse(localStorage.getItem(CHAVE)||'{}');
-return dados&&typeof dados==='object'?dados:{};
-}catch(e){return {};}
-}
-
 function mensagem(m){
 return 'Está na hora de tomar o remédio '+
 m.nome+'. '+(m.dose||'')+'. Cor '+(m.cor||'')+'.';
 }
 
-function sincronizarAlarmesAndroid(){
-if(!ponteDisponivel()){
-if(perfil==='idoso'){
+let horariosSalvos;
+window.atualizarStatusAlarmes=()=>{
+if(!androidIdoso)return;
+const ponte=window.AndroidAlarme;
 $('alarmeStatus').textContent=
-'Abra o aplicativo Android atualizado para utilizar os alarmes nativos.';
-}
+!ponte.alarmesExatosPermitidos()?'Permita alarmes exatos no Android.':
+!ponte.notificacoesPermitidas()?'Ative as notificações sonoras de medicamentos no Android.':
+horariosSalvos===false?'Não foi possível programar os alarmes Android.':
+medicamentosProntos&&historicoPronto?'Horários sincronizados com o Android.':
+'Aguardando sincronização dos horários.';
+};
+
+function sincronizarAlarmesAndroid(){
+if(!androidIdoso)return;
+if(!medicamentosProntos||!historicoPronto){
+window.atualizarStatusAlarmes();
 return;
 }
-
-if(!medicamentosProntos||!historicoPronto)return;
-
-const anteriores=lerSalvos();
-const desejados={};
-const agora=Date.now();
-
-for(const m of medicamentos){
-const partes=/^(\d{2}):(\d{2})$/.exec(String(m.hora||''));
-if(!m.id||!partes)continue;
-
-const hh=Number(partes[1]),mm=Number(partes[2]);
-if(hh>23||mm>59)continue;
-
-for(let d=0;d<DIAS;d++){
-const data=new Date();
-data.setHours(12,0,0,0);
-data.setDate(data.getDate()+d);
-data.setHours(hh,mm,0,0);
-
-const horario=data.getTime();
-if(horario<=agora||confirmado(m,diaLocal(data)))continue;
-
-const id=codigo+'_'+m.id+'_'+diaLocal(data);
-desejados[id]={horario,mensagem:mensagem(m)};
-}
-}
-
-const salvos={};
-let falhas=0,quantidade=0;
-
-for(const [id,antigo] of Object.entries(anteriores)){
-const novo=desejados[id];
-if(!novo||novo.horario!==antigo.horario||
-novo.mensagem!==antigo.mensagem){
+const dia=diaLocal(new Date());
+const horarios=medicamentos
+.filter(m=>/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(m.hora))
+.map(m=>({hora:m.hora,nome:String(m.nome||'seu medicamento'),
+tomado:confirmado(m,dia)?dia:''}));
+const ponte=window.AndroidAlarme;
+horariosSalvos=ponte.salvarHorarios(JSON.stringify(horarios));
 try{
-const cancelado=window.AndroidAlarme.cancelarAlarme(id);
-if(!cancelado){
-salvos[id]=antigo;
-falhas++;
-}
-}catch(e){
-salvos[id]=antigo;
-falhas++;
-}
-}
-}
-
-for(const [id,novo] of Object.entries(desejados)){
-const antigo=anteriores[id];
-
-if(antigo&&antigo.horario===novo.horario&&
-antigo.mensagem===novo.mensagem){
-salvos[id]=novo;
-quantidade++;
-continue;
-}
-
-try{
-const sucesso=window.AndroidAlarme.agendarAlarme(
-id,novo.mensagem,novo.horario);
-
-if(sucesso){
-salvos[id]=novo;
-quantidade++;
-}else{
-falhas++;
-}
-}catch(e){
-falhas++;
-console.error(e);
-}
-}
-
-localStorage.setItem(CHAVE,JSON.stringify(salvos));
-
-$('alarmeStatus').textContent=
-'⏰ '+quantidade+' alarmes programados para os próximos '+
-DIAS+' dias.'+
-(falhas?' ⚠️ '+falhas+' operações falharam.':'');
+const antigos=Object.keys(JSON.parse(localStorage.getItem(CHAVE)||'{}')||{});
+if(antigos.every(id=>ponte.limparAlarmeAntigo(id)))localStorage.removeItem(CHAVE);
+}catch(e){console.error(e);}
+window.atualizarStatusAlarmes();
 }
 
 window.prepararAlarmes=()=>{
-if(!ponteDisponivel()){
+if(!androidIdoso){
 alert('Abra o APK atualizado no celular do idoso.');
 return;
 }
-
-try{
-window.AndroidAlarme.solicitarPermissaoAlarme();
-}catch(e){console.error(e);}
-
 sincronizarAlarmesAndroid();
-alert('Verifique as permissões de alarmes exatos no Android e depois toque novamente em Preparar alarmes.');
+window.AndroidAlarme.solicitarPermissaoAlarme();
 };
 
 function limparEscutas(){
@@ -315,6 +248,7 @@ historico=[];
 medicamentosProntos=false;
 historicoPronto=false;
 renderizar();
+window.atualizarStatusAlarmes();
 
 if(!usuario||!codigo)return;
 
@@ -323,19 +257,19 @@ $('status').textContent='Conectando...';
 const base=collection(db,'familias',codigo,'medicamentos');
 const hist=collection(db,'familias',codigo,'historico');
 
-cancelar.push(onSnapshot(base,s=>{
-medicamentos=s.docs.map(d=>({id:d.id,...d.data()}));
-medicamentosProntos=true;
+cancelar.push(onSnapshot(base,{includeMetadataChanges:true},s=>{
+medicamentos=s.docs.map(d=>({...d.data(),id:d.id}));
+medicamentosProntos=!s.metadata.fromCache;
 renderizar();
 sincronizarAlarmesAndroid();
-$('status').textContent='✅ Conectado ao banco de dados';
+$('status').textContent=s.metadata.fromCache?'Aguardando conexão com o banco de dados':'✅ Conectado ao banco de dados';
 },e=>{
 $('status').textContent='Erro de conexão: '+e.message;
 }));
 
-cancelar.push(onSnapshot(hist,s=>{
+cancelar.push(onSnapshot(hist,{includeMetadataChanges:true},s=>{
 historico=s.docs.map(d=>({id:d.id,...d.data()}));
-historicoPronto=true;
+historicoPronto=!s.metadata.fromCache;
 renderizar();
 sincronizarAlarmesAndroid();
 verificarHorarios();
@@ -345,17 +279,37 @@ $('status').textContent='Erro no histórico: '+e.message;
 }
 
 window.conectar=()=>{
-const v=$('codigo').value.trim();
+let v=$('codigo').value.trim();
+if(androidIdoso&&v.startsWith('https://')){
+try{
+const link=new URL(v);
+if(link.origin==='https://davizinhohhh-pixel.github.io'&&
+link.pathname==='/lembrete-medicamentos/'){
+v=link.searchParams.get('familia')||'';
+}
+}catch(e){console.error(e);}
+}
 if(!/^[a-zA-Z0-9_-]{12,80}$/.test(v)){
 alert('Use um código de 12 a 80 letras, números, hífen ou sublinhado.');
 return;
 }
+if(v===codigo&&androidIdoso&&medicamentosProntos&&historicoPronto)return;
+if(androidIdoso&&codigo&&v!==codigo){
+if(!confirm('Trocar a família e remover os alarmes da família anterior?'))return;
+const ponte=window.AndroidAlarme;
+if(!ponte.salvarHorarios('[]')){
+alert('Não foi possível remover os alarmes anteriores.');
+return;
+}
+}
 codigo=v;
+$('codigo').value=codigo;
 localStorage.setItem('codigoFamilia',codigo);
 carregar();
 };
 
 window.criarFamilia=()=>{
+if(androidIdoso)return;
 perfil='familiar';
 localStorage.setItem('perfilRemedio',perfil);
 aplicarPerfil();
@@ -412,13 +366,15 @@ localStorage.setItem('perfilRemedio',perfil);
 }
 
 aplicarPerfil();
+document.documentElement.classList.add('interface-pronta');
+window.atualizarStatusAlarmes();
 
 onAuthStateChanged(auth,u=>{
 usuario=u;
 if(u&&codigo)carregar();
 });
 
-signInAnonymously(auth).catch(e=>{
+auth.authStateReady().then(()=>auth.currentUser||signInAnonymously(auth)).catch(e=>{
 $('status').textContent='Falha na autenticação: '+e.message;
 });
 
@@ -443,6 +399,7 @@ return data;
 }
 
 window.cadastrar=async()=>{
+if(perfil!=='familiar')return;
 const nome=$('nome').value.trim();
 const hora=$('hora').value;
 const cor=$('cor').value;
@@ -471,6 +428,7 @@ alert('Erro ao salvar: '+e.message);
 };
 
 window.excluir=async id=>{
+if(perfil!=='familiar')return;
 if(!confirm('Excluir este medicamento?'))return;
 try{
 await deleteDoc(doc(db,'familias',codigo,'medicamentos',id));
@@ -509,7 +467,7 @@ function renderizar(){
 const ord=[...medicamentos].sort((a,b)=>
 String(a.hora||'').localeCompare(String(b.hora||'')));
 
-const foto=m=>m.foto&&/^data:image\/jpeg;base64,/.test(m.foto)?
+const foto=m=>typeof m.foto==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(m.foto)?
 `<img class="remedio" alt="Foto do medicamento" src="${m.foto}">`:'';
 
 $('lista').innerHTML=ord.map(m=>`
