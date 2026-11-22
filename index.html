@@ -66,6 +66,7 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 <button data-familiar id="permitirAvisosFamilia" class="hidden" onclick="AndroidAlarme.prepararAvisosFamilia()">Ativar alertas do Familiar</button>
 <button data-familiar class="primary" onclick="gerarConvite()">📲 Enviar pelo WhatsApp</button>
 <button id="copiarConvite" data-familiar onclick="copiarConvite()">📋 Copiar convite</button>
+<button id="identificarAparelho" class="hidden" onclick="identificarAparelho()">Identificar este aparelho</button>
 <p id="status">Aguardando conexão</p>
 <small>Compartilhe o código apenas com pessoas de confiança. A sincronização depende das regras de acesso do Firebase.</small>
 </section>
@@ -179,6 +180,7 @@ $(x).classList.toggle('hidden',x!==t));
 };
 
 function aplicarPerfil(){
+$('identificarAparelho').classList.toggle('hidden',!android||!perfil);
 $('copiarConvite').textContent=android?'Copiar código da família':'📋 Copiar convite';
 $('escolhaPerfil').classList.toggle('hidden',!android||!!perfil);
 $('conteudo').classList.toggle('hidden',android&&!perfil);
@@ -190,6 +192,14 @@ document.querySelectorAll('[data-familiar]').forEach(b=>b.classList.toggle('hidd
 $('permitirAvisosFamilia').classList.toggle('hidden',!android||perfil!=='familiar');
 window.aba(perfil);
 }
+
+window.identificarAparelho=()=>{
+if(!android||!usuario||!codigo||!perfil){
+alert('Aguarde a conexão com a família antes de identificar o aparelho.');
+return;
+}
+prompt('Identificador deste aparelho no perfil '+(perfil==='familiar'?'Familiar':'Idoso')+':',usuario.uid);
+};
 
 window.escolherPerfil=novo=>{
 if(!android||perfil||!['familiar','idoso'].includes(novo))return;
