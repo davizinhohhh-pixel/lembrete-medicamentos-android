@@ -23,12 +23,12 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix '.teste'
-            manifestPlaceholders = [nomeAplicativo: 'Meu Remédio (Teste)']
+            manifestPlaceholders = [nomeAplicativo: 'DoseVoz (Teste)']
         }
     }
 
     defaultConfig {
-        manifestPlaceholders = [nomeAplicativo: 'Meu Remédio']
+        manifestPlaceholders = [nomeAplicativo: 'DoseVoz']
         applicationId 'com.lembretemedicamentos.app'
         minSdk 23
         targetSdk 36

@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#176b65">
-<title>Meu Remédio</title>
+<title>DoseVoz</title>
 <script>
 if(new URL(location.href).searchParams.get('android')==='app'&&
 typeof window.AndroidAlarme?.salvarHorarios==='function'){
@@ -40,12 +40,12 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 </head>
 <body>
 <header>
-<h1>💊 Meu Remédio</h1>
+<h1>💊 DoseVoz</h1>
 <p>Cuidando de quem você ama</p>
 </header>
 <main>
 <section id="escolhaPerfil" class="hidden">
-<h2>Como você vai usar o Meu Remédio?</h2>
+<h2>Como você vai usar o DoseVoz?</h2>
 <button class="primary wide" onclick="escolherPerfil('familiar')">Familiar · Gerenciar medicamentos</button>
 <button class="primary wide" onclick="escolherPerfil('idoso')">Idoso · Receber lembretes</button>
 </section>
@@ -399,7 +399,7 @@ mensagem=window.AndroidAlarme.versaoTeste()
 }else{
 const link=linkConvite();
 if(!link)return;
-mensagem='💊 Convite Meu Remédio: toque no link para conectar o celular do idoso aos medicamentos da família: '+link;
+mensagem='💊 Convite DoseVoz: toque no link para conectar o celular do idoso aos medicamentos da família: '+link;
 }
 window.location.href='https://wa.me/?text='+encodeURIComponent(mensagem);
 };

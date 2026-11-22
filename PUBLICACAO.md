@@ -1,4 +1,4 @@
-# Meu Remédio na Google Play
+# DoseVoz na Google Play
 
 A branch de publicação parte da versão `v1.3-testada`. O identificador de produção é `com.lembretemedicamentos.app`. O identificador de teste continua com o sufixo `.teste`. A versão Android preparada para a loja usa a API 36.
 
@@ -6,7 +6,7 @@ A branch de publicação parte da versão `v1.3-testada`. O identificador de pro
 
 Em GitHub Actions, a opção manual `play` gera e verifica um AAB assinado com a chave de upload. A configuração usa os secrets `MEU_REMEDIO_PLAY_KEYSTORE_BASE64`, `MEU_REMEDIO_PLAY_STORE_PASSWORD`, `MEU_REMEDIO_PLAY_KEY_ALIAS` e `MEU_REMEDIO_PLAY_KEY_PASSWORD`. Configure a chave da conta que será responsável pelo app e mantenha a cópia sob controle do titular. O workflow também mantém as opções de APK de teste e APK de atualização assinada.
 
-O link de instalação compartilhado pelo app oficial aponta para a ficha do Meu Remédio na Google Play. Ele fica utilizável pelos testadores quando a ficha e a faixa de teste estiverem configuradas. O Familiar continua copiando o código da família separadamente.
+O link de instalação compartilhado pelo app oficial aponta para a ficha do DoseVoz na Google Play. Ele fica utilizável pelos testadores quando a ficha e a faixa de teste estiverem configuradas. O Familiar continua copiando o código da família separadamente.
 
 ## Antes de abrir a distribuição
 
