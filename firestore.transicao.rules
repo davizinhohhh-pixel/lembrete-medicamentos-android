@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function temPerfil(familia, perfis) {
+      return request.auth != null && familia == '__CODIGO_DA_FAMILIA__'
+        && (('familiar' in perfis && request.auth.uid == '__UID_FAMILIAR__')
+          || ('idoso' in perfis && request.auth.uid == '__UID_IDOSO__'));
+    }
+
+    function confirmacaoValida(familia, registro) {
+      let entrada = request.resource.data;
+      return entrada.keys().hasAll(['medicamentoId', 'dia', 'status'])
+        && entrada.medicamentoId is string
+        && entrada.medicamentoId.matches('^[A-Za-z0-9_-]{1,128}$')
+        && entrada.dia is string
+        && entrada.dia.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && registro == entrada.dia + '_' + entrada.medicamentoId
+        && entrada.status == 'Tomado'
+        && exists(/databases/$(database)/documents/familias/$(familia)/medicamentos/$(entrada.medicamentoId));
+    }
+
+    match /familias/{familia}/medicamentos/{medicamento} {
+      allow read: if temPerfil(familia, ['familiar', 'idoso']);
+      allow create, update, delete: if temPerfil(familia, ['familiar']);
+    }
+
+    match /familias/{familia}/historico/{registro} {
+      allow read: if temPerfil(familia, ['familiar', 'idoso']);
+      allow create, update: if temPerfil(familia, ['idoso']) && confirmacaoValida(familia, registro);
+    }
+
+    // Modelo de migração para os dois aparelhos já identificados.
+    // Substitua os três marcadores no ambiente privado antes de publicar.
+    // Qualquer caminho sem uma permissão explícita permanece inacessível ao aplicativo.
+  }
+}
