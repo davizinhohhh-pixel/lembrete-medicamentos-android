@@ -126,7 +126,7 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import {initializeAuth,indexedDBLocalPersistence,browserLocalPersistence,browserSessionPersistence,signInAnonymously,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
-import {initializeFirestore,persistentLocalCache,collection,doc,setDoc,deleteDoc,onSnapshot,writeBatch,runTransaction,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+import {initializeFirestore,persistentLocalCache,collection,doc,setDoc,deleteDoc,onSnapshot,writeBatch,runTransaction,serverTimestamp,getDocFromServer} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 
 const firebaseConfig={
 apiKey:'AIzaSyAMYY2ePUMyikwEHgI3kSpXApz76F049fo',
@@ -339,6 +339,18 @@ $('status').textContent='Erro no histórico: '+e.message;
 }));
 }
 
+async function verificarRegrasDoseVoz(){
+try{
+await getDocFromServer(doc(db,'dosevozPreparacao','validarRegras'));
+}catch(e){
+if(e.code==='permission-denied')return;
+throw Error('Sem conexão para confirmar a configuração do DoseVoz.');
+}
+const erro=Error('A proteção do DoseVoz ainda não foi ativada no Firebase.');
+erro.code='dosevoz/regras-pendentes';
+throw erro;
+}
+
 window.conectar=async()=>{
 const v=$('codigo').value.trim();
 if(android){
@@ -354,6 +366,7 @@ return;
 }
 vinculando=true;
 try{
+await verificarRegrasDoseVoz();
 const uid=usuario.uid;
 const familia=await runTransaction(db,async transacao=>{
 const ref=doc(db,'convitesDoseVoz',v);
@@ -371,7 +384,7 @@ localStorage.setItem(chaveFamilia('idoso'),familia);
 preencherCodigo();
 carregar();
 }catch(e){
-alert('Não foi possível vincular. Peça ao Familiar um código válido e confira a conexão.');
+alert(e.code==='dosevoz/regras-pendentes'?e.message:'Não foi possível vincular. Peça ao Familiar um código válido e confira a conexão.');
 }finally{
 vinculando=false;
 }
@@ -393,6 +406,7 @@ if(perfil!=='familiar'||vinculando)return;
 if(!usuario){alert('Aguarde a autenticação e tente novamente.');return;}
 vinculando=true;
 try{
+await verificarRegrasDoseVoz();
 const familia=codigo||crypto.randomUUID();
 const convite=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,'0')).join('');
 const lote=writeBatch(db);
@@ -406,7 +420,7 @@ preencherCodigo();
 aplicarPerfil();
 carregar();
 }catch(e){
-alert('Não foi possível gerar um código. Confira a conexão. Se o Idoso já estiver vinculado, o vínculo continua ativo.');
+alert(e.code==='dosevoz/regras-pendentes'?e.message:'Não foi possível gerar um código. Confira a conexão. Se o Idoso já estiver vinculado, o vínculo continua ativo.');
 }finally{
 vinculando=false;
 }
@@ -450,7 +464,9 @@ prompt(android?'Copie o código da família:':'Copie este link:',valor);
 window.gerarConvite=()=>{
 let mensagem;
 if(android){
-mensagem='https://play.google.com/store/apps/details?id=com.lembretemedicamentos.app';
+mensagem=window.AndroidAlarme.versaoTeste()
+?'https://raw.githubusercontent.com/davizinhohhh-pixel/lembrete-medicamentos-android/teste/dosevoz/downloads/DoseVoz-Teste-1.4.apk'
+:'https://play.google.com/store/apps/details?id=com.lembretemedicamentos.app';
 }else{
 const link=linkConvite();
 if(!link)return;

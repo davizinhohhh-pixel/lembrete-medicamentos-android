@@ -169,7 +169,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public boolean versaoTeste() {
-            return getPackageName().endsWith(".teste");
+            return getPackageName().endsWith(".seguranca");
         }
 
         @JavascriptInterface
