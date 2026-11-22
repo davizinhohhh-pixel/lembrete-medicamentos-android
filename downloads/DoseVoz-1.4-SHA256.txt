@@ -1,0 +1,2 @@
+1e9c8db79f30b8b4a7ddad25d5382afffe43f1a48d6facfa9302973c52339710  DoseVoz-Codigo-Fonte-1.4.zip
+ee18cccb889f4f90f46fa2a0d0b11b3683a3cb6c72d1671dbe26a6e7fb5d5562  DoseVoz-Teste-1.4.apk
