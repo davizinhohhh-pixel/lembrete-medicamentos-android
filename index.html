@@ -59,12 +59,13 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 <p id="trocarPerfil" class="hidden"><button onclick="trocarPerfil()">Trocar perfil neste celular</button></p>
 <section id="conexao">
 <h3>🔗 Conexão familiar</h3>
-<label for="codigo">Código da família ou link do convite</label>
-<input id="codigo" placeholder="Mínimo 12 caracteres">
+<label for="codigo">Código da família</label>
+<input id="codigo" placeholder="Digite ou cole o código" autocapitalize="none" spellcheck="false">
 <button class="primary" onclick="conectar()">Conectar</button>
 <button data-familiar onclick="criarFamilia()">Criar código</button>
+<button data-familiar id="permitirAvisosFamilia" class="hidden" onclick="AndroidAlarme.prepararAvisosFamilia()">Ativar alertas do Familiar</button>
 <button data-familiar class="primary" onclick="gerarConvite()">📲 Enviar pelo WhatsApp</button>
-<button data-familiar onclick="copiarConvite()">📋 Copiar convite</button>
+<button id="copiarConvite" data-familiar onclick="copiarConvite()">📋 Copiar convite</button>
 <p id="status">Aguardando conexão</p>
 <small>Compartilhe o código apenas com pessoas de confiança. A sincronização depende das regras de acesso do Firebase.</small>
 </section>
@@ -109,7 +110,7 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 <p id="alarmeStatus"></p>
 <div id="aviso" class="hidden"></div>
 <div id="lembretes"></div>
-<small>O alarme nativo requer o aplicativo Android atualizado e permissões. A voz funciona com a página ativa. Mantenha também um alarme de segurança no celular.</small>
+<small>O alarme nativo requer o aplicativo Android atualizado e permissões. O aviso Android repete o nome do idoso e do remédio até tocar em Já tomei. Mantenha também um alarme de segurança no celular.</small>
 </section>
 </div>
 
@@ -156,6 +157,8 @@ let medicamentosProntos=false,historicoPronto=false;
 let somAtivo=false,audioCtx;
 let alarmeTimer=null,alarmeId=null;
 let alertaFamilia=new Set();
+let notificadosFamilia=new Set();
+let confirmacoesLocais=new Set();
 
 const CHAVE='meuremedio_alarmas_v3';
 
@@ -176,6 +179,7 @@ $(x).classList.toggle('hidden',x!==t));
 };
 
 function aplicarPerfil(){
+$('copiarConvite').textContent=android?'Copiar código da família':'📋 Copiar convite';
 $('escolhaPerfil').classList.toggle('hidden',!android||!!perfil);
 $('conteudo').classList.toggle('hidden',android&&!perfil);
 $('trocarPerfil').classList.toggle('hidden',!android||!perfil);
@@ -183,12 +187,14 @@ $('tabF').classList.toggle('hidden',perfil!=='familiar');
 $('tabI').classList.toggle('hidden',perfil!=='idoso');
 $('conexao').classList.toggle('hidden',perfil==='idoso'&&!android);
 document.querySelectorAll('[data-familiar]').forEach(b=>b.classList.toggle('hidden',perfil!=='familiar'));
+$('permitirAvisosFamilia').classList.toggle('hidden',!android||perfil!=='familiar');
 window.aba(perfil);
 }
 
 window.escolherPerfil=novo=>{
 if(!android||perfil||!['familiar','idoso'].includes(novo))return;
 perfil=novo;
+if(perfil==='familiar')window.AndroidAlarme.prepararAvisosFamilia?.();
 localStorage.setItem(CHAVE_PERFIL,perfil);
 aplicarPerfil();
 carregar();
@@ -216,7 +222,7 @@ String(d.getDate()).padStart(2,'0');
 }
 
 function confirmado(m,dia){
-return historico.some(h=>
+return (androidIdoso()&&confirmacoesLocais.has(codigo+'_'+dia+'_'+m.id))||historico.some(h=>
 h.medicamentoId===m.id&&h.dia===dia&&h.status==='Tomado');
 }
 
@@ -254,7 +260,7 @@ return;
 const dia=diaLocal(new Date());
 const horarios=medicamentos
 .filter(m=>/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(m.hora))
-.map(m=>({hora:m.hora,nome:String(m.nome||'seu medicamento'),
+.map(m=>({id:m.id,hora:m.hora,nome:String(m.nome||'seu medicamento'),idoso:String(m.idosoNome||''),
 tomado:confirmado(m,dia)?dia:''}));
 const ponte=window.AndroidAlarme;
 horariosSalvos=ponte.salvarHorarios(JSON.stringify(horarios));
@@ -353,7 +359,7 @@ perfil='familiar';
 localStorage.setItem('perfilRemedio',perfil);
 aplicarPerfil();
 
-const bytes=crypto.getRandomValues(new Uint8Array(24));
+const bytes=crypto.getRandomValues(new Uint8Array(12));
 $('codigo').value=Array.from(bytes,b=>
 b.toString(16).padStart(2,'0')).join('');
 window.conectar();
@@ -371,26 +377,29 @@ return url.toString();
 }
 
 window.copiarConvite=async()=>{
-const link=linkConvite();
-if(!link)return;
+const valor=android?codigo:linkConvite();
+if(!valor){
+if(android)alert('Primeiro toque em Criar código ou Conectar.');
+return;
+}
 try{
-await navigator.clipboard.writeText(link);
-alert('Link copiado! Cole no WhatsApp.');
+await navigator.clipboard.writeText(valor);
+alert(android?'Código da família copiado.':'Link copiado! Cole no WhatsApp.');
 }catch(e){
-prompt('Copie este link:',link);
+prompt(android?'Copie o código da família:':'Copie este link:',valor);
 }
 };
 
 window.gerarConvite=()=>{
+let mensagem;
+if(android&&window.AndroidAlarme.versaoTeste()){
+mensagem='https://raw.githubusercontent.com/davizinhohhh-pixel/lembrete-medicamentos-android/teste/meu-remedio-idoso/downloads/Meu-Remedio-Completo-Teste-1.3.apk';
+}else{
 const link=linkConvite();
 if(!link)return;
-const apk='https://raw.githubusercontent.com/davizinhohhh-pixel/lembrete-medicamentos-android/teste/meu-remedio-idoso/downloads/Meu-Remedio-Completo-Teste-1.2.apk';
-const mensagem=android&&window.AndroidAlarme.versaoTeste()
-?'💊 Convite Meu Remédio\n\n1. Baixe e instale o app de teste: '+apk+
-'\n\n2. Abra o app, escolha Idoso e cole este link no campo de conexão: '+link
-:'💊 Convite Meu Remédio: toque no link para conectar o celular do idoso aos medicamentos da família: '+link;
-window.location.href='https://wa.me/?text='+
-encodeURIComponent(mensagem);
+mensagem='💊 Convite Meu Remédio: toque no link para conectar o celular do idoso aos medicamentos da família: '+link;
+}
+window.location.href='https://wa.me/?text='+encodeURIComponent(mensagem);
 };
 
 const parametros=new URL(location.href).searchParams;
@@ -485,6 +494,12 @@ if(perfil!=='idoso')return;
 const m=medicamentos.find(x=>x.id===id);
 if(!m)return;
 const dia=diaLocal(new Date());
+const chaveDose=codigo+'_'+dia+'_'+id;
+if(androidIdoso()){
+confirmacoesLocais.add(chaveDose);
+window.AndroidAlarme.confirmarDose(m.id,String(m.nome||'seu medicamento'));
+pararAlarme();
+}
 
 try{
 await setDoc(doc(db,'familias',codigo,'historico',dia+'_'+id),{
@@ -502,6 +517,7 @@ sincronizarAlarmesAndroid();
 verificarHorarios();
 alert('Medicamento registrado como tomado!');
 }catch(e){
+confirmacoesLocais.delete(chaveDose);
 alert(e.message);
 }
 };
@@ -616,7 +632,7 @@ $('aviso').classList.remove('hidden');
 
 if(!alarmeTimer){
 const repetir=()=>{
-if(document.hidden)return;
+if(document.hidden||(androidIdoso()&&window.AndroidAlarme.vozAtiva()))return;
 tocar();
 
 if(somAtivo&&'speechSynthesis'in window){
@@ -629,19 +645,24 @@ speechSynthesis.speak(fala);
 
 repetir();
 alarmeId=m.id;
-alarmeTimer=setInterval(repetir,20000);
+alarmeTimer=setInterval(repetir,10000);
 }
 
 }else{
+if(perfil!=='familiar'||(android&&(!medicamentosProntos||!historicoPronto)))return;
 for(const m of medicamentos){
 const partes=String(m.hora||'').split(':').map(Number);
 if(partes.length!==2)continue;
 
 const atraso=minAgora-(partes[0]*60+partes[1]);
-const chave=dia+'_'+m.id;
+const chave=dia+'_'+codigo+'_'+m.id;
 
-if(atraso>=15&&!confirmado(m,dia)&&
-!alertaFamilia.has(chave)){
+if(atraso<15||confirmado(m,dia))continue;
+if(android&&!notificadosFamilia.has(chave)&&
+window.AndroidAlarme.notificarAtraso(chave,String(m.nome),String(m.hora))){
+notificadosFamilia.add(chave);
+}
+if(!alertaFamilia.has(chave)){
 alertaFamilia.add(chave);
 
 $('status').textContent=

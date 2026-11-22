@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -16,7 +17,6 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.List;
 import java.util.Locale;
 
 final class Alarmes {
@@ -97,19 +97,23 @@ final class Alarmes {
         }
     }
 
-    static synchronized List<String> disparar(Context context, long horario) {
-        List<String> nomes = new ArrayList<>();
-        if (horario <= 0 || horario > System.currentTimeMillis()) return nomes;
+    static synchronized ArrayList<Bundle> disparar(Context context, long horario) {
+        ArrayList<Bundle> doses = new ArrayList<>();
+        if (horario <= 0 || horario > System.currentTimeMillis()) return doses;
 
         JSONArray horarios = lerHorarios(context);
         for (int i = 0; i < horarios.length(); i++) {
             JSONObject item = horarios.optJSONObject(i);
             if (proximaOcorrencia(item, horario - 1) == horario) {
-                nomes.add(item.optString("nome"));
+                Bundle dose = new Bundle();
+                dose.putString("id", item.optString("id"));
+                dose.putString("nome", item.optString("nome", "seu medicamento"));
+                dose.putString("idoso", item.optString("idoso"));
+                doses.add(dose);
             }
         }
         programar(context, Math.max(horario, System.currentTimeMillis()));
-        return nomes;
+        return doses;
     }
 
     static boolean cancelarAntigo(Context context, String id) {

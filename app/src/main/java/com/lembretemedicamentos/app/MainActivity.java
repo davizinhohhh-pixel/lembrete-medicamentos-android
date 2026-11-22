@@ -4,6 +4,10 @@ package com.lembretemedicamentos.app;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlarmManager;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -155,6 +159,57 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public boolean salvarHorarios(String horarios) {
             return Alarmes.salvar(MainActivity.this, horarios);
+        }
+
+        @JavascriptInterface
+        public void confirmarDose(String id, String nome) {
+            AvisoFalado.confirmar(id, nome);
+        }
+
+        @JavascriptInterface
+        public boolean vozAtiva() {
+            return AvisoFalado.ativo();
+        }
+
+        @JavascriptInterface
+        public void prepararAvisosFamilia() {
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(
+                    Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                runOnUiThread(() -> requestPermissions(
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS}, 102));
+            }
+        }
+
+        @JavascriptInterface
+        public boolean notificarAtraso(String chave, String nome, String hora) {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager == null || (Build.VERSION.SDK_INT >= 24 && !manager.areNotificationsEnabled())
+                    || (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(
+                        Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) return false;
+
+            Notification.Builder aviso;
+            if (Build.VERSION.SDK_INT >= 26) {
+                String canal = "atrasos_familia";
+                manager.createNotificationChannel(new NotificationChannel(canal,
+                    "Medicamentos sem confirmação", NotificationManager.IMPORTANCE_DEFAULT));
+                aviso = new Notification.Builder(MainActivity.this, canal);
+            } else {
+                aviso = new Notification.Builder(MainActivity.this)
+                    .setDefaults(Notification.DEFAULT_SOUND);
+            }
+            String texto = nome + " das " + hora + " ainda está sem confirmação.";
+            PendingIntent abrir = PendingIntent.getActivity(MainActivity.this, 0,
+                new Intent(MainActivity.this, MainActivity.class),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            manager.notify(chave, 1003, aviso.setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("Medicamento sem confirmação")
+                .setContentText(texto)
+                .setStyle(new Notification.BigTextStyle().bigText(texto))
+                .setContentIntent(abrir)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .build());
+            return true;
         }
 
         @JavascriptInterface

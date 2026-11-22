@@ -11,16 +11,16 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
-import android.media.RingtoneManager;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
 import android.text.TextUtils;
 
-import java.util.List;
-import android.os.Build;
+import java.util.ArrayList;
 
 public class AlarmeReceiver extends BroadcastReceiver {
 
-    private static final String CANAL = "alarme_medicamentos";
+    private static final String CANAL = "lembrete_medicamentos_voz";
 
     static boolean notificacoesPermitidas(Context context) {
         NotificationManager manager = context.getSystemService(NotificationManager.class);
@@ -40,10 +40,13 @@ public class AlarmeReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         String texto;
+        ArrayList<Bundle> doses = new ArrayList<>();
         long horario = intent.getLongExtra("horario", 0);
         if (Alarmes.DISPARAR.equals(intent.getAction())) {
-            List<String> nomes = Alarmes.disparar(context, horario);
-            if (nomes.isEmpty()) return;
+            doses = Alarmes.disparar(context, horario);
+            if (doses.isEmpty()) return;
+            ArrayList<String> nomes = new ArrayList<>();
+            for (Bundle dose : doses) nomes.add(dose.getString("nome"));
             texto = TextUtils.join(", ", nomes);
         } else if (Alarmes.ANTIGO.equals(intent.getAction())) {
             texto = intent.getStringExtra("remedio");
@@ -59,14 +62,15 @@ public class AlarmeReceiver extends BroadcastReceiver {
             return;
         }
 
-        Uri som = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+        Uri som = Uri.parse("android.resource://" + context.getPackageName()
+            + "/raw/hora_do_remedio");
         AudioAttributes audio = new AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_ALARM)
             .build();
 
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(CANAL,
-                "Alarmes de medicamentos", NotificationManager.IMPORTANCE_HIGH);
+                "Lembretes de medicamentos com voz", NotificationManager.IMPORTANCE_HIGH);
             channel.enableVibration(true);
             channel.setSound(som, audio);
             manager.createNotificationChannel(channel);
@@ -104,5 +108,15 @@ public class AlarmeReceiver extends BroadcastReceiver {
             .setContentIntent(pending);
 
         manager.notify(horario == 0 ? null : Long.toString(horario), 1001, aviso.build());
+        if (!doses.isEmpty() && notificacoesPermitidas(context)) {
+            Intent voz = new Intent(context, AvisoFalado.class);
+            voz.putParcelableArrayListExtra("doses", doses);
+            try {
+                if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(voz);
+                else context.startService(voz);
+            } catch (IllegalStateException | SecurityException e) {
+                // A notificação sonora acima permanece como aviso.
+            }
+        }
     }
 }
