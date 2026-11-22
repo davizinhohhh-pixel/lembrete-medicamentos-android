@@ -32,8 +32,8 @@ public class MainActivity extends Activity {
     private static final String SITE =
         "https://davizinhohhh-pixel.github.io/lembrete-medicamentos/";
 
-    private static final String SITE_IDOSO =
-        SITE + "?android=idoso";
+    private static final String PAGINA_APP =
+        SITE + "?android=app";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -80,7 +80,7 @@ public class MainActivity extends Activity {
             @Override
             public WebResourceResponse shouldInterceptRequest(
                     WebView view, WebResourceRequest request) {
-                if (!request.isForMainFrame() || !SITE_IDOSO.equals(request.getUrl().toString())) {
+                if (!request.isForMainFrame() || !PAGINA_APP.equals(request.getUrl().toString())) {
                     return null;
                 }
                 try {
@@ -108,21 +108,11 @@ public class MainActivity extends Activity {
         });
 
         setContentView(webView);
-        webView.loadUrl(SITE_IDOSO);
-
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(
-                    Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(
-                new String[]{
-                    Manifest.permission.POST_NOTIFICATIONS
-                }, 101);
-        }
+        webView.loadUrl(PAGINA_APP);
     }
 
     private boolean abrirLink(Uri uri) {
-        if (SITE_IDOSO.equals(uri.toString())) return false;
+        if (PAGINA_APP.equals(uri.toString())) return false;
         if ("https".equals(uri.getScheme())) {
             try {
                 startActivity(new Intent(Intent.ACTION_VIEW, uri));
@@ -139,6 +129,10 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 101 && webView != null) {
             webView.evaluateJavascript("window.atualizarStatusAlarmes?.()", null);
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED
+                    && !Alarmes.permitido(this)) {
+                new PonteAndroid().solicitarPermissaoAlarme();
+            }
         }
     }
 
@@ -152,6 +146,11 @@ public class MainActivity extends Activity {
     }
 
     public class PonteAndroid {
+
+        @JavascriptInterface
+        public boolean versaoTeste() {
+            return getPackageName().endsWith(".teste");
+        }
 
         @JavascriptInterface
         public boolean salvarHorarios(String horarios) {
@@ -175,6 +174,17 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void solicitarPermissaoAlarme() {
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED
+                    && !getPreferences(MODE_PRIVATE).getBoolean("notificacoesSolicitadas", false)) {
+                runOnUiThread(() -> {
+                    getPreferences(MODE_PRIVATE).edit()
+                        .putBoolean("notificacoesSolicitadas", true).apply();
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+                });
+                return;
+            }
             if (Build.VERSION.SDK_INT >= 31) {
                 AlarmManager manager =
                     (AlarmManager) getSystemService(

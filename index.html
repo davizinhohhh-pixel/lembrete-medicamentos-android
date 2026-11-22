@@ -7,9 +7,9 @@
 <meta name="theme-color" content="#176b65">
 <title>Meu Remédio</title>
 <script>
-if(new URL(location.href).searchParams.get('android')==='idoso'&&
+if(new URL(location.href).searchParams.get('android')==='app'&&
 typeof window.AndroidAlarme?.salvarHorarios==='function'){
-document.documentElement.classList.add('android-idoso');
+document.documentElement.classList.add('android-app');
 }
 </script>
 <style>
@@ -27,8 +27,8 @@ input,select{width:100%;padding:12px;margin:7px 0 13px;border:1px solid #bbb;bor
 .wide{width:100%}
 .item{border:1px solid #ddd;padding:12px;border-radius:9px;margin:10px 0}
 .hidden{display:none}
-.android-idoso #tabF,.android-idoso #familiar,.android-idoso [data-familiar]{display:none}
-.android-idoso:not(.interface-pronta) #idoso{display:block}
+.android-app:not(.interface-pronta) #conteudo{display:none}
+#escolhaPerfil button{margin:6px 0;font-size:18px}
 small{color:#555}
 img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 #lembretes .item{font-size:19px;line-height:1.5}
@@ -44,12 +44,19 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 <p>Cuidando de quem você ama</p>
 </header>
 <main>
+<section id="escolhaPerfil" class="hidden">
+<h2>Como você vai usar o Meu Remédio?</h2>
+<button class="primary wide" onclick="escolherPerfil('familiar')">Familiar · Gerenciar medicamentos</button>
+<button class="primary wide" onclick="escolherPerfil('idoso')">Idoso · Receber lembretes</button>
+</section>
+<div id="conteudo">
 <nav>
 <button id="tabF" onclick="aba('familiar')">👪 Familiar</button>
 <button id="tabI" onclick="aba('idoso')">💊 Meus medicamentos</button>
 <button onclick="aba('historico')">📋 Histórico</button>
 </nav>
 
+<p id="trocarPerfil" class="hidden"><button onclick="trocarPerfil()">Trocar perfil neste celular</button></p>
 <section id="conexao">
 <h3>🔗 Conexão familiar</h3>
 <label for="codigo">Código da família ou link do convite</label>
@@ -112,6 +119,7 @@ img.remedio{width:110px;height:110px;object-fit:contain;border-radius:8px}
 <div id="registros"></div>
 </section>
 </div>
+</div>
 </main>
 
 <script type="module">
@@ -136,8 +144,13 @@ const $=id=>document.getElementById(id);
 
 let usuario=null;
 let codigo=localStorage.getItem('codigoFamilia')||'';
-const androidIdoso=document.documentElement.classList.contains('android-idoso');
-let perfil=androidIdoso?'idoso':localStorage.getItem('perfilRemedio')||'familiar';
+const android=document.documentElement.classList.contains('android-app');
+const CHAVE_PERFIL='perfilRemedioAndroid';
+const perfilSalvo=localStorage.getItem(CHAVE_PERFIL);
+let perfil=android
+?(perfilSalvo==='escolher'?'':perfilSalvo||(codigo?'idoso':''))
+:localStorage.getItem('perfilRemedio')||'familiar';
+const androidIdoso=()=>android&&perfil==='idoso';
 let medicamentos=[],historico=[],cancelar=[];
 let medicamentosProntos=false,historicoPronto=false;
 let somAtivo=false,audioCtx;
@@ -157,18 +170,44 @@ return String(v??'').replace(/[&<>"']/g,c=>({
 }
 
 window.aba=t=>{
-if(t==='familiar'&&perfil!=='familiar')return;
+if(!perfil||(t!=='historico'&&t!==perfil))return;
 ['familiar','idoso','historico'].forEach(x=>
 $(x).classList.toggle('hidden',x!==t));
 };
 
 function aplicarPerfil(){
+$('escolhaPerfil').classList.toggle('hidden',!android||!!perfil);
+$('conteudo').classList.toggle('hidden',android&&!perfil);
+$('trocarPerfil').classList.toggle('hidden',!android||!perfil);
 $('tabF').classList.toggle('hidden',perfil!=='familiar');
 $('tabI').classList.toggle('hidden',perfil!=='idoso');
-$('conexao').classList.toggle('hidden',perfil==='idoso'&&!androidIdoso);
+$('conexao').classList.toggle('hidden',perfil==='idoso'&&!android);
 document.querySelectorAll('[data-familiar]').forEach(b=>b.classList.toggle('hidden',perfil!=='familiar'));
 window.aba(perfil);
 }
+
+window.escolherPerfil=novo=>{
+if(!android||perfil||!['familiar','idoso'].includes(novo))return;
+perfil=novo;
+localStorage.setItem(CHAVE_PERFIL,perfil);
+aplicarPerfil();
+carregar();
+};
+
+window.trocarPerfil=()=>{
+if(!android||!perfil)return;
+if(perfil==='idoso'){
+if(!confirm('Trocar de perfil interrompe os lembretes deste celular até voltar ao perfil Idoso. Continuar?'))return;
+if(!window.AndroidAlarme.salvarHorarios('[]')){
+alert('Não foi possível interromper os alarmes.');
+return;
+}
+}
+perfil='';
+localStorage.setItem(CHAVE_PERFIL,'escolher');
+aplicarPerfil();
+carregar();
+};
 
 function diaLocal(d){
 return d.getFullYear()+'-'+
@@ -196,7 +235,7 @@ m.nome+'. '+(m.dose||'')+'. Cor '+(m.cor||'')+'.';
 
 let horariosSalvos;
 window.atualizarStatusAlarmes=()=>{
-if(!androidIdoso)return;
+if(!androidIdoso())return;
 const ponte=window.AndroidAlarme;
 $('alarmeStatus').textContent=
 !ponte.alarmesExatosPermitidos()?'Permita alarmes exatos no Android.':
@@ -207,7 +246,7 @@ medicamentosProntos&&historicoPronto?'Horários sincronizados com o Android.':
 };
 
 function sincronizarAlarmesAndroid(){
-if(!androidIdoso)return;
+if(!androidIdoso())return;
 if(!medicamentosProntos||!historicoPronto){
 window.atualizarStatusAlarmes();
 return;
@@ -227,7 +266,7 @@ window.atualizarStatusAlarmes();
 }
 
 window.prepararAlarmes=()=>{
-if(!androidIdoso){
+if(!androidIdoso()){
 alert('Abra o APK atualizado no celular do idoso.');
 return;
 }
@@ -250,7 +289,7 @@ historicoPronto=false;
 renderizar();
 window.atualizarStatusAlarmes();
 
-if(!usuario||!codigo)return;
+if(!usuario||!codigo||!perfil)return;
 
 $('status').textContent='Conectando...';
 
@@ -280,7 +319,7 @@ $('status').textContent='Erro no histórico: '+e.message;
 
 window.conectar=()=>{
 let v=$('codigo').value.trim();
-if(androidIdoso&&v.startsWith('https://')){
+if(android&&v.startsWith('https://')){
 try{
 const link=new URL(v);
 if(link.origin==='https://davizinhohhh-pixel.github.io'&&
@@ -293,8 +332,8 @@ if(!/^[a-zA-Z0-9_-]{12,80}$/.test(v)){
 alert('Use um código de 12 a 80 letras, números, hífen ou sublinhado.');
 return;
 }
-if(v===codigo&&androidIdoso&&medicamentosProntos&&historicoPronto)return;
-if(androidIdoso&&codigo&&v!==codigo){
+if(v===codigo&&androidIdoso()&&medicamentosProntos&&historicoPronto)return;
+if(androidIdoso()&&codigo&&v!==codigo){
 if(!confirm('Trocar a família e remover os alarmes da família anterior?'))return;
 const ponte=window.AndroidAlarme;
 if(!ponte.salvarHorarios('[]')){
@@ -309,7 +348,7 @@ carregar();
 };
 
 window.criarFamilia=()=>{
-if(androidIdoso)return;
+if(android&&perfil!=='familiar')return;
 perfil='familiar';
 localStorage.setItem('perfilRemedio',perfil);
 aplicarPerfil();
@@ -345,7 +384,11 @@ prompt('Copie este link:',link);
 window.gerarConvite=()=>{
 const link=linkConvite();
 if(!link)return;
-const mensagem='💊 Convite Meu Remédio: toque no link para conectar o celular do idoso aos medicamentos da família: '+link;
+const apk='https://raw.githubusercontent.com/davizinhohhh-pixel/lembrete-medicamentos-android/teste/meu-remedio-idoso/downloads/Meu-Remedio-Completo-Teste-1.2.apk';
+const mensagem=android&&window.AndroidAlarme.versaoTeste()
+?'💊 Convite Meu Remédio\n\n1. Baixe e instale o app de teste: '+apk+
+'\n\n2. Abra o app, escolha Idoso e cole este link no campo de conexão: '+link
+:'💊 Convite Meu Remédio: toque no link para conectar o celular do idoso aos medicamentos da família: '+link;
 window.location.href='https://wa.me/?text='+
 encodeURIComponent(mensagem);
 };
